@@ -1,0 +1,183 @@
+.invites-container {
+  min-height: 100vh;
+  background: #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.invites-box {
+  width: 100%;
+  max-width: 450px;
+}
+
+.invites-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.invites-icon {
+  width: 64px;
+  height: 64px;
+  background: #2563eb;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
+.invites-header h1 {
+  color: white;
+  font-size: 28px;
+  margin: 0;
+}
+
+.invites-header p {
+  color: #9ca3af;
+  margin-top: 8px;
+}
+
+.invites-content {
+  background: #1f2937;
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.loading {
+  text-align: center;
+  padding: 32px 0;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #2563eb;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading p {
+  color: #9ca3af;
+}
+
+.no-invites {
+  text-align: center;
+  padding: 32px 0;
+}
+
+.no-invites p {
+  color: #9ca3af;
+  margin: 0;
+}
+
+.no-invites .hint {
+  color: #6b7280;
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+.invite-list {
+  margin-bottom: 24px;
+}
+
+.invite-card {
+  background: #374151;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.invite-info h3 {
+  color: white;
+  font-size: 18px;
+  margin: 0 0 4px;
+}
+
+.invite-info p {
+  color: #9ca3af;
+  font-size: 14px;
+  margin: 0;
+}
+
+.invite-info .role {
+  color: #60a5fa;
+  text-transform: capitalize;
+}
+
+.invite-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.accept-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  background: #22c55e;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.accept-btn:hover {
+  background: #16a34a;
+}
+
+.accept-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.decline-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  background: #4b5563;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+}
+
+.decline-btn:hover {
+  background: #6b7280;
+}
+
+.decline-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.signout-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  background: transparent;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.signout-btn:hover {
+  background: #374151;
+  color: white;
+}
