@@ -89,6 +89,11 @@ function AppRoutes() {
           <Dashboard />
         </PrivateRoute>
       } />
+      <Route path="/location/:locationId" element={
+        <PrivateRoute>
+          <Dashboard />
+        </PrivateRoute>
+      } />
     </Routes>
   );
 }
