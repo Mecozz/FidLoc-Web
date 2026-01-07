@@ -61,6 +61,53 @@
   font-size: 14px;
 }
 
+/* Apple Sign In Button */
+.apple-button {
+  width: 100%;
+  padding: 12px;
+  background: white;
+  color: black;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.apple-button:hover {
+  background: #f3f4f6;
+}
+
+.apple-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Divider */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #374151;
+}
+
+.divider span {
+  color: #6b7280;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
 .form-group {
   margin-bottom: 16px;
 }

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import { MapPin } from 'lucide-react';
+import { auth } from '../firebase';
+import { OAuthProvider, signInWithPopup } from 'firebase/auth';
 import './Login.css';
 
 export default function Login() {
@@ -26,6 +28,27 @@ export default function Login() {
     setLoading(false);
   };
 
+  const handleAppleSignIn = async () => {
+    setError('');
+    setLoading(true);
+
+    try {
+      const provider = new OAuthProvider('apple.com');
+      provider.addScope('email');
+      provider.addScope('name');
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      if (err.code === 'auth/popup-closed-by-user') {
+        // User closed the popup, not an error
+      } else {
+        setError('Failed to sign in with Apple.');
+        console.error(err);
+      }
+    }
+
+    setLoading(false);
+  };
+
   return (
     <div className="login-container">
       <div className="login-box">
@@ -37,41 +60,59 @@ export default function Login() {
           <p>Fiber Location Tracker</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="login-form">
+        <div className="login-form">
           <h2>Sign In</h2>
           
           {error && <div className="error-message">{error}</div>}
 
-          <div className="form-group">
-            <label>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-            />
-          </div>
-
-          <button type="submit" disabled={loading} className="login-button">
-            {loading ? 'Signing in...' : 'Sign In'}
+          {/* Apple Sign In Button */}
+          <button 
+            onClick={handleAppleSignIn} 
+            disabled={loading}
+            className="apple-button"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+            </svg>
+            Sign in with Apple
           </button>
+
+          <div className="divider">
+            <span>or</span>
+          </div>
+
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label>Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+              />
+            </div>
+
+            <button type="submit" disabled={loading} className="login-button">
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
 
           <p className="login-hint">
             Don't have an account? <Link to="/register" className="link">Create one</Link>
           </p>
-        </form>
+        </div>
       </div>
     </div>
   );
