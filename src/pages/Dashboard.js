@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../firebase';
+import { db, functions } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
 import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, Timestamp, orderBy, limit, setDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { MapPin, LogOut, Navigation, Copy, Search, Plus, X, Share2, List, Map as MapIcon, Wifi, WifiOff, RefreshCw, Edit2, Trash2, History, RotateCcw, Trash, Sun, Moon, Monitor, ExternalLink, Users, Settings, ChevronRight, Mail, UserPlus, Shield, UserMinus, Crown, Package, Building, ClipboardList, Camera, FileText, CheckCircle, XCircle, AlertTriangle, ScanLine, StopCircle, Ruler } from 'lucide-react';
 import { useParams } from 'react-router-dom';
@@ -623,41 +624,11 @@ function InventoryModal({ userId, onClose }) {
         ];
       }
       
-      const apiKey = process.env.REACT_APP_ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error('AI scanning not configured. Contact admin.');
-      }
+      // Call Firebase Cloud Function
+      const processBufferSheet = httpsCallable(functions, 'processBufferSheet');
+      const result = await processBufferSheet({ content, fileType: file.type });
       
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 4096,
-          messages: [{
-            role: 'user',
-            content: content
-          }]
-        })
-      });
-      
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error?.message || 'API request failed');
-      }
-      
-      const data = await response.json();
-      const text = data.content[0].text;
-      
-      // Parse the serial numbers from response
-      const serials = text.split('\n')
-        .map(s => s.trim().toUpperCase())
-        .filter(s => s.match(/^(ADTN|8612|854|841)/i));
+      const serials = result.data.serials || [];
       
       if (serials.length === 0) {
         alert('No serial numbers found in image. Make sure the buffer sheet is clearly visible.');
@@ -673,7 +644,7 @@ function InventoryModal({ userId, onClose }) {
       }
     } catch (err) {
       console.error('AI processing error:', err);
-      alert('Failed to process image: ' + err.message);
+      alert('Failed to process image: ' + (err.message || 'Unknown error'));
     }
     
     setAiProcessing(false);
