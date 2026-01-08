@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, Timestamp, orderBy, limit, setDoc } from 'firebase/firestore';
-import { MapPin, LogOut, Navigation, Copy, Search, Plus, X, Share2, List, Map as MapIcon, Wifi, WifiOff, RefreshCw, Edit2, Trash2, History, RotateCcw, Trash, Sun, Moon, Monitor, ExternalLink, Users, Settings, ChevronRight, Mail, UserPlus, Shield, UserMinus, Crown, Package, Building } from 'lucide-react';
+import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, Timestamp, orderBy, limit, setDoc, writeBatch, getDocs } from 'firebase/firestore';
+import { MapPin, LogOut, Navigation, Copy, Search, Plus, X, Share2, List, Map as MapIcon, Wifi, WifiOff, RefreshCw, Edit2, Trash2, History, RotateCcw, Trash, Sun, Moon, Monitor, ExternalLink, Users, Settings, ChevronRight, Mail, UserPlus, Shield, UserMinus, Crown, Package, Building, ClipboardList, Camera, FileText, CheckCircle, XCircle, AlertTriangle, ScanLine, StopCircle, Ruler } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { Html5Qrcode } from 'html5-qrcode';
 import offlineQueue from '../OfflineQueueManager';
 import themeManager from '../ThemeManager';
 import './Dashboard.css';
@@ -24,6 +25,7 @@ const pendingMarkerIcons = { Hub: createColoredIcon('#3b82f6', true), Garage: cr
 const normalizeType = (type) => { if (!type) return 'Hub'; const lower = type.toLowerCase(); return lower === 'hub' ? 'Hub' : lower === 'garage' ? 'Garage' : lower === 'hut' ? 'Hut' : lower === 'co' ? 'CO' : 'Hub'; };
 const FILTER_TYPES = ['Hub', 'Garage', 'Hut', 'CO'];
 const calculateDistance = (lat1, lon1, lat2, lon2) => { const R = 3959; const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180; const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2); return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); };
+const formatTimeAgo = (date) => { const now = new Date(); const diff = Math.floor((now - date) / 1000); if (diff < 60) return 'just now'; if (diff < 3600) return Math.floor(diff / 60) + ' min ago'; if (diff < 86400) return Math.floor(diff / 3600) + ' hr ago'; return Math.floor(diff / 86400) + ' day ago'; };
 const userLocationIcon = L.divIcon({ html: '<div style="width: 16px; height: 16px; background: #3b82f6; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"></div>', className: 'user-marker', iconSize: [16, 16], iconAnchor: [8, 8] });
 const logActivity = async (userOrg, action, locationName, userEmail, changes = null) => { try { await addDoc(collection(db, 'organizations', userOrg, 'activityLog'), { action, locationName, userEmail, changes, timestamp: Timestamp.now() }); } catch (err) { console.error('Failed to log activity:', err); } };
 
@@ -45,11 +47,15 @@ export default function Dashboard() {
   const [showMenu, setShowMenu] = useState(false);
   const [showTeamMembers, setShowTeamMembers] = useState(false);
   const [showEquipmentOrders, setShowEquipmentOrders] = useState(false);
+  const [showInventory, setShowInventory] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showDropMeasure, setShowDropMeasure] = useState(false);
   const [editingLocation, setEditingLocation] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [viewMode, setViewMode] = useState('list');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncing, setSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState(new Date());
   const [theme, setTheme] = useState(themeManager.getTheme());
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
@@ -62,9 +68,9 @@ export default function Dashboard() {
   useEffect(() => { const handleOnline = () => { setIsOnline(true); handleManualSync(); }; const handleOffline = () => setIsOnline(false); window.addEventListener('online', handleOnline); window.addEventListener('offline', handleOffline); return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline); }; }, []);
   useEffect(() => { const loadPending = async () => setPendingLocations(await offlineQueue.getPendingLocations()); loadPending(); return offlineQueue.subscribe(setPendingLocations); }, []);
   useEffect(() => { if (navigator.geolocation) { navigator.geolocation.getCurrentPosition((pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => {}); } }, []);
-  useEffect(() => { if (!userOrg) { setLoading(false); return; } const q = query(collection(db, 'organizations', userOrg, 'locations')); return onSnapshot(q, (snap) => { const locs = snap.docs.map(d => ({ id: d.id, ...d.data() })); setLocations(locs); setLoading(false); if (locationId) { const found = locs.find(l => l.id === locationId); if (found) setSelectedLocation(found); } }, () => setLoading(false)); }, [userOrg, locationId]);
+  useEffect(() => { if (!userOrg) { setLoading(false); return; } const q = query(collection(db, 'organizations', userOrg, 'locations')); return onSnapshot(q, (snap) => { const locs = snap.docs.map(d => ({ id: d.id, ...d.data() })); setLocations(locs); setLoading(false); setLastSynced(new Date()); if (locationId) { const found = locs.find(l => l.id === locationId); if (found) setSelectedLocation(found); } }, () => setLoading(false)); }, [userOrg, locationId]);
 
-  const handleManualSync = async () => { if (!isOnline || syncing) return; setSyncing(true); try { await offlineQueue.syncQueue(); } catch {} setSyncing(false); };
+  const handleManualSync = async () => { if (!isOnline || syncing) return; setSyncing(true); try { await offlineQueue.syncQueue(); setLastSynced(new Date()); } catch {} setSyncing(false); };
   const handleEdit = (loc) => { setEditingLocation(loc); setShowEditModal(true); };
   const handleDelete = async (loc) => { if (!canDelete) return; try { const trashData = { ...loc, deletedBy: user?.email, deletedAt: Timestamp.now(), originalId: loc.id }; delete trashData.id; await setDoc(doc(db, 'organizations', userOrg, 'trash', loc.id), trashData); await deleteDoc(doc(db, 'organizations', userOrg, 'locations', loc.id)); await logActivity(userOrg, 'deleted', loc.name, user?.email, { deletedLocation: { name: loc.name, address: loc.address, locationType: loc.locationType } }); setDeleteConfirm(null); setSelectedLocation(null); } catch (err) { console.error('Delete failed:', err); } };
   const getDistanceText = (loc) => { if (!userLocation || !loc.latitude || !loc.longitude) return null; const dist = calculateDistance(userLocation.lat, userLocation.lng, loc.latitude, loc.longitude); return dist < 0.1 ? '< 0.1 mi' : dist < 10 ? dist.toFixed(1) + ' mi' : Math.round(dist) + ' mi'; };
@@ -86,37 +92,43 @@ export default function Dashboard() {
         <div className="menu-user"><div className="menu-user-email">{user?.email}</div><div className="menu-user-role">{userRole}</div></div>
         <div className="menu-section"><div className="menu-section-title">Appearance</div><div className="theme-selector"><button onClick={() => setThemeMode('light')} className={`theme-option ${theme === 'light' ? 'active' : ''}`}><Sun size={18} /><span>Light</span></button><button onClick={() => setThemeMode('dark')} className={`theme-option ${theme === 'dark' ? 'active' : ''}`}><Moon size={18} /><span>Dark</span></button><button onClick={() => setThemeMode('system')} className={`theme-option ${theme === 'system' ? 'active' : ''}`}><Monitor size={18} /><span>Auto</span></button></div></div>
         {canViewActivityLog && (<div className="menu-section"><div className="menu-section-title">Administration</div><button onClick={() => { setShowActivityLog(true); setShowMenu(false); }} className="menu-item"><History size={20} /><span>Activity Log</span><ChevronRight size={18} /></button>{userRole === 'owner' && (<button onClick={() => { setShowTrash(true); setShowMenu(false); }} className="menu-item"><Trash size={20} /><span>Trash</span><ChevronRight size={18} /></button>)}<button onClick={() => { setShowTeamMembers(true); setShowMenu(false); }} className="menu-item"><Users size={20} /><span>Team Members</span><ChevronRight size={18} /></button></div>)}
-        <div className="menu-section"><div className="menu-section-title">Quick Links</div><button onClick={() => { setShowEquipmentOrders(true); setShowMenu(false); }} className="menu-item"><Package size={20} /><span>Equipment Orders</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://consolidated.com')} className="menu-item"><ExternalLink size={20} /><span>Consolidated Website</span><ChevronRight size={18} /></button><button onClick={() => {}} className="menu-item disabled"><Settings size={20} /><span>Settings</span><span className="coming-soon">Soon</span></button></div>
+        {canViewActivityLog && (<div className="menu-section"><div className="menu-section-title">Inventory</div><button onClick={() => { setShowInventory(true); setShowMenu(false); }} className="menu-item"><ClipboardList size={20} /><span>My Inventory</span><ChevronRight size={18} /></button><button onClick={() => { setShowEquipmentOrders(true); setShowMenu(false); }} className="menu-item"><Package size={20} /><span>Equipment Orders</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u&route=shorturl')} className="menu-item"><ExternalLink size={20} /><span>Inventory Corrections</span><ChevronRight size={18} /></button></div>)}
+        <div className="menu-section"><div className="menu-section-title">Quick Links</div><button onClick={() => { setShowDropMeasure(true); setShowMenu(false); }} className="menu-item"><Ruler size={20} /><span>Drop Measure</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://cnslonline.sharepoint.com/sites/Intranet')} className="menu-item"><Building size={20} /><span>Intranet-Home</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://fairpoint.etadirect.com')} className="menu-item"><ExternalLink size={20} /><span>Oracle</span><ChevronRight size={18} /></button><button onClick={() => { setShowSettings(true); setShowMenu(false); }} className="menu-item"><Settings size={20} /><span>Settings</span><ChevronRight size={18} /></button></div>
+        <div className="menu-section"><div className="menu-section-title">Requires VPN</div><button onClick={() => openExternalLink('http://resolve.consolidated.com/resolve/sir/index.html')} className="menu-item"><ExternalLink size={20} /><span>Resolve</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://consolidated.okta.com')} className="menu-item"><ExternalLink size={20} /><span>My Apps Dashboard</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://netcracker.consolidated.com/cci_custom/jumpStart.jsp')} className="menu-item"><ExternalLink size={20} /><span>Netcracker</span><ChevronRight size={18} /></button></div>
+        <div className="menu-section"><div className="menu-section-title">VPN Setup</div><button onClick={() => { const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent); const isAndroid = /Android/.test(navigator.userAgent); if (isIOS || isAndroid) { let appOpened = false; const handleBlur = () => { appOpened = true; }; window.addEventListener('blur', handleBlur); window.location.href = 'anyconnect://'; setTimeout(() => { window.removeEventListener('blur', handleBlur); if (!appOpened && !document.hidden) { if (window.confirm('Open AnyConnect? If not installed, you can download it.')) { if (isIOS) window.open('https://apps.apple.com/app/cisco-secure-client/id1135064690', '_blank'); else window.open('https://play.google.com/store/apps/details?id=com.cisco.anyconnect.vpn.android.avf', '_blank'); } } }, 2500); } else { window.open('https://remote-nh1.consolidated.com/+CSCOE+/logon.html#form_title_text', '_blank'); } }} className="menu-item"><Shield size={20} /><span>AnyConnect VPN</span><ChevronRight size={18} /></button><div className="help-info"><div className="help-item"><strong>Server Address:</strong><br/>remote-nh1.consolidated.com/Employees</div></div></div>
         <div className="menu-footer"><button onClick={logout} className="menu-logout"><LogOut size={20} /><span>Sign Out</span></button><div className="menu-version">FidLoc v1.0</div></div>
       </div>
 
       <header className="header"><div className="header-content"><div className="header-left"><button onClick={() => setShowMenu(true)} className="menu-button"><div className="header-icon"><MapPin size={20} color="white" /></div></button><div><h1>FidLoc</h1><span className="role-badge">{userRole}</span></div></div><div className="header-right"><div className={'status-indicator ' + (isOnline ? 'online' : 'offline')}>{isOnline ? <Wifi size={16} /> : <WifiOff size={16} />}</div>{pendingLocations.length > 0 && isOnline && <button onClick={handleManualSync} className={'sync-button ' + (syncing ? 'syncing' : '')} disabled={syncing}><RefreshCw size={18} className={syncing ? 'spinning' : ''} /><span className="pending-count">{pendingLocations.length}</span></button>}<div className="view-toggle"><button onClick={() => setViewMode('list')} className={'toggle-btn ' + (viewMode === 'list' ? 'active' : '')}><List size={18} /></button><button onClick={() => setViewMode('map')} className={'toggle-btn ' + (viewMode === 'map' ? 'active' : '')}><MapIcon size={18} /></button></div>{canAddLocations && <button onClick={() => setShowAddModal(true)} className="add-button"><Plus size={20} /></button>}</div></div></header>
 
-      {!isOnline && <div className="offline-banner"><WifiOff size={16} /><span>You are offline.</span></div>}
+      {!isOnline && <div className="offline-banner"><WifiOff size={16} /><span>You are offline</span><span className="last-synced">Last synced: {formatTimeAgo(lastSynced)}</span></div>}
       {pendingLocations.length > 0 && isOnline && <div className="pending-banner"><RefreshCw size={16} /><span>{pendingLocations.length} pending</span><button onClick={handleManualSync} disabled={syncing}>{syncing ? 'Syncing...' : 'Sync Now'}</button></div>}
 
       <div className="search-section"><div className="search-box"><Search size={20} className="search-icon" /><input type="text" placeholder="Search locations..." value={searchText} onChange={(e) => setSearchText(e.target.value)} /></div><div className="filter-pills"><button onClick={() => setFilterType(null)} className={'filter-pill ' + (!filterType ? 'active' : '')}>All ({allLocations.length})</button>{FILTER_TYPES.map(type => <button key={type} onClick={() => setFilterType(filterType === type ? null : type)} className={'filter-pill ' + (filterType === type ? 'active' : '')} style={filterType === type ? { background: LOCATION_TYPES[type].color } : {}}>{LOCATION_TYPES[type].label} ({allLocations.filter(l => normalizeType(l.locationType) === type).length})</button>)}</div></div>
 
-      {viewMode === 'map' && (<div className="map-container"><MapContainer center={getMapCenter()} zoom={10} style={{ height: '100%', width: '100%' }}><TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{userLocation && <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon}><Popup>Your Location</Popup></Marker>}{filteredLocations.map(loc => loc.latitude && loc.longitude && (<Marker key={loc.id} position={[loc.latitude, loc.longitude]} icon={loc.isPending ? pendingMarkerIcons[normalizeType(loc.locationType)] : markerIcons[normalizeType(loc.locationType)]}><Popup><div className="popup-content"><strong>{loc.name}</strong><br/>{loc.address}<br/><button onClick={() => handleNavigate(loc)} className="popup-nav-btn">Navigate</button></div></Popup></Marker>))}</MapContainer><div className="map-legend">{FILTER_TYPES.map(type => <div key={type} className="legend-item"><span className="legend-dot" style={{ background: LOCATION_TYPES[type].color }}></span><span>{type}</span></div>)}</div></div>)}
+      {viewMode === 'map' && (<div className="map-container"><MapContainer center={getMapCenter()} zoom={10} style={{ height: '100%', width: '100%' }}><TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{userLocation && <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon}><Popup>Your Location</Popup></Marker>}{filteredLocations.map(loc => loc.latitude && loc.longitude && (<Marker key={loc.id} position={[loc.latitude, loc.longitude]} icon={loc.isPending ? pendingMarkerIcons[normalizeType(loc.locationType)] : markerIcons[normalizeType(loc.locationType)]}><Popup><div className="popup-content"><strong>{loc.name}</strong><br/><span className="popup-type" style={{ color: LOCATION_TYPES[normalizeType(loc.locationType)]?.color }}>{normalizeType(loc.locationType)}</span><br/>{loc.address}<br/><button onClick={() => handleNavigate(loc)} className="popup-nav-btn">Navigate</button></div></Popup></Marker>))}</MapContainer><div className="map-legend">{FILTER_TYPES.map(type => <div key={type} className="legend-item"><span className="legend-dot" style={{ background: LOCATION_TYPES[type].color }}></span><span>{type}</span></div>)}</div></div>)}
 
-      {viewMode === 'list' && (<div className="locations-list">{loading ? <div className="loading"><div className="spinner"></div><p>Loading...</p></div> : filteredLocations.length === 0 ? <div className="empty-state"><MapPin size={48} /><p>No locations found</p></div> : filteredLocations.map(loc => (<LocationCard key={loc.id} location={loc} distance={getDistanceText(loc)} onNavigate={handleNavigate} onCopyAddress={handleCopyAddress} onShare={handleShareLocation} onEdit={handleEdit} onDelete={(l) => setDeleteConfirm(l)} isSelected={selectedLocation?.id === loc.id} onSelect={() => setSelectedLocation(selectedLocation?.id === loc.id ? null : loc)} copied={copied} linkCopied={linkCopied} isDuplicate={allLocations.filter(l => l.name?.toLowerCase() === loc.name?.toLowerCase() && normalizeType(l.locationType) === normalizeType(loc.locationType)).length > 1} canEdit={canEdit} canDelete={canDelete} />))}</div>)}
+      {viewMode === 'list' && (<div className="locations-list">{loading ? <div className="loading"><div className="spinner"></div><p>Loading...</p></div> : filteredLocations.length === 0 ? <div className="empty-state"><MapPin size={48} /><p>No locations found</p></div> : filteredLocations.map(loc => (<LocationCard key={loc.id} location={loc} distance={getDistanceText(loc)} onNavigate={handleNavigate} onCopyAddress={handleCopyAddress} onShare={handleShareLocation} onEdit={handleEdit} onDelete={(l) => setDeleteConfirm(l)} isSelected={selectedLocation?.id === loc.id} onSelect={() => setSelectedLocation(selectedLocation?.id === loc.id ? null : loc)} copied={copied} linkCopied={linkCopied} isDuplicate={allLocations.filter(l => l.name?.toLowerCase() === loc.name?.toLowerCase() && normalizeType(l.locationType) === normalizeType(loc.locationType)).length > 1} canEdit={canEdit} canDelete={canDelete} canViewMeta={canViewActivityLog} />))}</div>)}
 
       {showAddModal && <AddLocationModal userOrg={userOrg} userEmail={user?.email} onClose={() => setShowAddModal(false)} existingLocations={allLocations} isOnline={isOnline} />}
       {showEditModal && editingLocation && <EditLocationModal location={editingLocation} userOrg={userOrg} userEmail={user?.email} onClose={() => { setShowEditModal(false); setEditingLocation(null); }} isOnline={isOnline} />}
-      {showActivityLog && <ActivityLogModal userOrg={userOrg} onClose={() => setShowActivityLog(false)} />}
+      {showActivityLog && <ActivityLogModal userOrg={userOrg} userRole={userRole} onClose={() => setShowActivityLog(false)} />}
       {showTrash && <TrashModal userOrg={userOrg} userEmail={user?.email} onClose={() => setShowTrash(false)} />}
       {showTeamMembers && <TeamMembersModal userOrg={userOrg} userEmail={user?.email} userRole={userRole} currentUserId={user?.uid} onClose={() => setShowTeamMembers(false)} />}
       {showEquipmentOrders && <EquipmentOrdersModal onClose={() => setShowEquipmentOrders(false)} />}
+      {showInventory && <InventoryModal userId={user?.uid} onClose={() => setShowInventory(false)} />}
+      {showSettings && <SettingsModal user={user} locations={locations} onClose={() => setShowSettings(false)} />}
+      {showDropMeasure && <DropMeasureModal onClose={() => setShowDropMeasure(false)} />}
       {deleteConfirm && <DeleteConfirmModal location={deleteConfirm} onConfirm={() => handleDelete(deleteConfirm)} onCancel={() => setDeleteConfirm(null)} />}
     </div>
   );
 }
 
-function LocationCard({ location, distance, onNavigate, onCopyAddress, onShare, onEdit, onDelete, isSelected, onSelect, copied, linkCopied, isDuplicate, canEdit, canDelete }) {
+function LocationCard({ location, distance, onNavigate, onCopyAddress, onShare, onEdit, onDelete, isSelected, onSelect, copied, linkCopied, isDuplicate, canEdit, canDelete, canViewMeta }) {
   const typeConfig = LOCATION_TYPES[normalizeType(location.locationType)] || LOCATION_TYPES.Hub;
   return (
     <div className={'location-card ' + (isSelected ? 'selected ' : '') + (isDuplicate ? 'duplicate ' : '') + (location.isPending ? 'pending' : '')}><button onClick={onSelect} className="location-card-main"><div className="location-icon" style={{ background: typeConfig.color + '20' }}><MapPin size={24} color={typeConfig.color} /></div><div className="location-info"><div className="location-name"><span>{location.name}</span>{location.requiresLadder && <span className="ladder-icon">🪜</span>}{location.isPending && <span className="pending-badge">Pending</span>}</div><p className="location-address">{location.address}</p><div className="location-badges"><span className="type-badge" style={{ background: typeConfig.color + '20', color: typeConfig.color }}>{typeConfig.label}</span>{location.hasLadderBracket && <span className="bracket-badge">Has Bracket</span>}</div></div>{distance && <div className="location-distance">{distance}</div>}</button>
-      {isSelected && (<div className="location-details">{location.notes && <p className="location-notes">{location.notes}</p>}<div className="location-meta"><div className="location-coords">{location.latitude?.toFixed(6)}, {location.longitude?.toFixed(6)}</div>{!location.isPending && <div className="location-added-by">Added by: {location.createdBy || 'Unknown'}{location.createdAt && <span> on {(location.createdAt.toDate ? location.createdAt.toDate() : new Date(location.createdAt)).toLocaleDateString()}</span>}</div>}{location.lastModifiedBy && <div className="location-modified-by">Edited by: {location.lastModifiedBy}{location.lastModified && <span> on {(location.lastModified.toDate ? location.lastModified.toDate() : new Date(location.lastModified)).toLocaleDateString()}</span>}</div>}{location.isPending && <div className="location-added-by pending-note">Waiting to sync</div>}</div><div className="location-actions"><button onClick={() => onNavigate(location)} className="navigate-button"><Navigation size={18} /> Navigate</button><button onClick={() => onCopyAddress(location.address)} className="copy-button"><Copy size={18} /> {copied ? 'Copied!' : 'Copy'}</button>{!location.isPending && <button onClick={() => onShare(location)} className="share-button"><Share2 size={18} /> {linkCopied ? 'Copied!' : 'Share'}</button>}</div>{!location.isPending && (canEdit || canDelete) && (<div className="location-actions edit-actions">{canEdit && <button onClick={() => onEdit(location)} className="edit-button"><Edit2 size={18} /> Edit</button>}{canDelete && <button onClick={() => onDelete(location)} className="delete-button"><Trash2 size={18} /> Delete</button>}</div>)}</div>)}
+      {isSelected && (<div className="location-details">{location.notes && <p className="location-notes">{location.notes}</p>}<div className="location-meta"><div className="location-coords">{location.latitude?.toFixed(6)}, {location.longitude?.toFixed(6)}</div>{canViewMeta && !location.isPending && <div className="location-added-by">Added by: {location.createdBy || 'Unknown'}{location.createdAt && <span> on {(location.createdAt.toDate ? location.createdAt.toDate() : new Date(location.createdAt)).toLocaleDateString()}</span>}</div>}{canViewMeta && location.lastModifiedBy && <div className="location-modified-by">Edited by: {location.lastModifiedBy}{location.lastModified && <span> on {(location.lastModified.toDate ? location.lastModified.toDate() : new Date(location.lastModified)).toLocaleDateString()}</span>}</div>}{location.isPending && <div className="location-added-by pending-note">Waiting to sync</div>}</div><div className="location-actions"><button onClick={() => onNavigate(location)} className="navigate-button"><Navigation size={18} /> Navigate</button><button onClick={() => onCopyAddress(location.address)} className="copy-button"><Copy size={18} /> {copied ? 'Copied!' : 'Copy'}</button>{!location.isPending && <button onClick={() => onShare(location)} className="share-button"><Share2 size={18} /> {linkCopied ? 'Copied!' : 'Share'}</button>}</div>{!location.isPending && (canEdit || canDelete) && (<div className="location-actions edit-actions">{canEdit && <button onClick={() => onEdit(location)} className="edit-button"><Edit2 size={18} /> Edit</button>}{canDelete && <button onClick={() => onDelete(location)} className="delete-button"><Trash2 size={18} /> Delete</button>}</div>)}</div>)}
     </div>
   );
 }
@@ -124,7 +136,7 @@ function LocationCard({ location, distance, onNavigate, onCopyAddress, onShare, 
 function AddLocationModal({ userOrg, userEmail, onClose, existingLocations, isOnline }) {
   const [name, setName] = useState(''); const [address, setAddress] = useState(''); const [locationType, setLocationType] = useState(''); const [notes, setNotes] = useState(''); const [requiresLadder, setRequiresLadder] = useState(false); const [hasLadderBracket, setHasLadderBracket] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [warning, setWarning] = useState(''); const [isBlocked, setIsBlocked] = useState(false); const [coords, setCoords] = useState({ lat: '', lng: '' }); const [useCurrentLocation, setUseCurrentLocation] = useState(false); const [showManualCoords, setShowManualCoords] = useState(false); const [manualCoordsInput, setManualCoordsInput] = useState('');
   const checkDupes = (n, a, lat, lng, t) => { if (!existingLocations?.length || !t) return; const norm = s => s?.toLowerCase().replace(/\s+/g, ' ').trim() || ''; const nameMatch = existingLocations.find(l => norm(l.name) === norm(n) && norm(n) && normalizeType(l.locationType) === t); if (nameMatch) { setError('A ' + t + ' named "' + nameMatch.name + '" already exists!'); setIsBlocked(true); return; } setError(''); setIsBlocked(false); const addrMatch = existingLocations.find(l => norm(l.address) === norm(a) && norm(a) && normalizeType(l.locationType) === t); if (addrMatch) setWarning('A ' + t + ' at that address already exists'); else if (lat && lng && existingLocations.find(l => l.latitude && l.longitude && normalizeType(l.locationType) === t && calculateDistance(lat, lng, l.latitude, l.longitude) < 0.02)) setWarning('A location within 100ft exists'); else setWarning(''); };
-  const getGPS = () => { if (!navigator.geolocation) { setError('GPS not supported'); return; } setLoading(true); navigator.geolocation.getCurrentPosition(async (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setUseCurrentLocation(true); try { const r = await fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + p.coords.latitude + '&lon=' + p.coords.longitude + '&zoom=18', { headers: { 'User-Agent': 'FidLoc/1.0' } }); const d = await r.json(); if (d.display_name) setAddress(d.display_name.split(', ').slice(0, 4).join(', ')); } catch { setAddress(p.coords.latitude.toFixed(5) + ', ' + p.coords.longitude.toFixed(5)); } setLoading(false); }, () => { setError('GPS failed'); setLoading(false); }, { enableHighAccuracy: true, timeout: 15000 }); };
+  const getGPS = () => { if (!navigator.geolocation) { setError('GPS not supported on this device'); return; } setLoading(true); setError(''); navigator.geolocation.getCurrentPosition(async (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setUseCurrentLocation(true); try { const r = await fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + p.coords.latitude + '&lon=' + p.coords.longitude + '&zoom=18', { headers: { 'User-Agent': 'FidLoc/1.0' } }); const d = await r.json(); if (d.display_name) setAddress(d.display_name.split(', ').slice(0, 4).join(', ')); } catch { setAddress(p.coords.latitude.toFixed(5) + ', ' + p.coords.longitude.toFixed(5)); } setLoading(false); }, (err) => { if (err.code === 1) setError('Location permission denied. Go to Settings > Safari > Location and allow for this site.'); else if (err.code === 2) setError('GPS unavailable. Make sure Location Services is ON in Settings > Privacy > Location Services.'); else if (err.code === 3) setError('GPS timed out. Try again outside with clear sky.'); else setError('GPS failed: ' + err.message); setLoading(false); }, { enableHighAccuracy: true, timeout: 15000 }); };
   const parseCoords = () => { const m = manualCoordsInput.match(/(-?\d+\.?\d*)\s*[,\s]\s*(-?\d+\.?\d*)/); if (m && Math.abs(parseFloat(m[1])) <= 90 && Math.abs(parseFloat(m[2])) <= 180) { setCoords({ lat: parseFloat(m[1]), lng: parseFloat(m[2]) }); setUseCurrentLocation(true); setShowManualCoords(false); } else setError('Invalid coords'); };
   const geocode = async (a) => { try { const r = await fetch('https://maps.googleapis.com/maps/api/geocode/json?address=' + encodeURIComponent(a) + '&key=AIzaSyDt1X0uhHu-wUC0L51T-AS77ymlusiYh7I'); const d = await r.json(); return d.results?.[0] ? { lat: d.results[0].geometry.location.lat, lng: d.results[0].geometry.location.lng } : null; } catch { return null; } };
   const submit = async (e) => { e.preventDefault(); if (isBlocked) return; setLoading(true); setError(''); var finalCoords = coords; if (!useCurrentLocation || !coords.lat) { if (!isOnline) { setError('Offline - use GPS'); setLoading(false); return; } finalCoords = await geocode(address); if (!finalCoords) { setError('Could not geocode'); setLoading(false); return; } } var data = { name, address, latitude: finalCoords.lat, longitude: finalCoords.lng, locationType, notes, requiresLadder: locationType === 'Hub' ? requiresLadder : false, hasLadderBracket: locationType === 'Hub' ? hasLadderBracket : false, createdBy: userEmail, userOrg }; try { if (isOnline) { await addDoc(collection(db, 'organizations', userOrg, 'locations'), Object.assign({}, data, { createdAt: Timestamp.now(), lastModified: Timestamp.now() })); await logActivity(userOrg, 'created', name, userEmail); } else await offlineQueue.addToQueue(data); onClose(); } catch { setError('Failed to save'); } setLoading(false); };
@@ -137,11 +149,12 @@ function EditLocationModal({ location, userOrg, userEmail, onClose, isOnline }) 
   return (<div className="modal-overlay"><div className="modal"><div className="modal-header"><h2>Edit Location</h2><button onClick={onClose} className="close-button"><X size={24} /></button></div><form onSubmit={submit} className="modal-form">{error && <div className="error-message">{error}</div>}{!isOnline && <div className="error-message">Must be online to edit</div>}<div className="form-group"><label>Name *</label><input value={name} onChange={e => setName(e.target.value.toUpperCase())} required /></div><div className="form-group"><label>Type *</label><select value={locationType} onChange={e => setLocationType(e.target.value)} required>{FILTER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div><div className="form-group"><label>Address *</label><input value={address} onChange={e => setAddress(e.target.value)} required /></div>{locationType === 'Hub' && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={requiresLadder} onChange={e => setRequiresLadder(e.target.checked)} /> 🪜 Requires Ladder</label>{requiresLadder && <label className="checkbox-label"><input type="checkbox" checked={hasLadderBracket} onChange={e => setHasLadderBracket(e.target.checked)} /> Has Bracket</label>}</div>}<div className="form-group"><label>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} /></div><div className="modal-actions"><button type="button" onClick={onClose} className="cancel-button">Cancel</button><button type="submit" disabled={loading || !isOnline} className="submit-button">{loading ? 'Saving...' : 'Save Changes'}</button></div></form></div></div>);
 }
 
-function ActivityLogModal({ userOrg, onClose }) {
-  const [activities, setActivities] = useState([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
-  useEffect(() => { const q = query(collection(db, 'organizations', userOrg, 'activityLog'), orderBy('timestamp', 'desc'), limit(50)); return onSnapshot(q, (snap) => { setActivities(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); }, (err) => { console.error('Activity log error:', err); setError('Unable to load activity log.'); setLoading(false); }); }, [userOrg]);
+function ActivityLogModal({ userOrg, userRole, onClose }) {
+  const [activities, setActivities] = useState([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [clearing, setClearing] = useState(false);
+  useEffect(() => { const q = query(collection(db, 'organizations', userOrg, 'activityLog'), orderBy('timestamp', 'desc'), limit(50)); return onSnapshot(q, (snap) => { setActivities(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); setError(''); }, (err) => { console.error('Activity log error:', err); setError('Unable to load activity log.'); setLoading(false); }); }, [userOrg]);
+  const clearActivityLog = async () => { if (!window.confirm('Clear all activity log entries? This cannot be undone.')) return; setClearing(true); setError(''); try { const toDelete = [...activities]; for (const a of toDelete) { await deleteDoc(doc(db, 'organizations', userOrg, 'activityLog', a.id)); } } catch (err) { console.error('Clear activity log failed:', err); setError('Failed to clear: ' + err.message); } setClearing(false); };
   var formatTime = (ts) => ts ? (ts.toDate ? ts.toDate() : new Date(ts)).toLocaleString() : ''; var getIcon = (a) => a === 'created' ? '➕' : a === 'edited' ? '✏️' : a === 'deleted' ? '🗑️' : a === 'restored' ? '♻️' : '📝'; var getColor = (a) => a === 'created' ? '#22c55e' : a === 'edited' ? '#3b82f6' : a === 'deleted' ? '#ef4444' : a === 'restored' ? '#22c55e' : '#9ca3af';
-  return (<div className="modal-overlay"><div className="modal activity-modal"><div className="modal-header"><h2><History size={20} /> Activity Log</h2><button onClick={onClose} className="close-button"><X size={24} /></button></div><div className="activity-log-content">{loading ? <div className="loading"><div className="spinner"></div></div> : error ? <div className="error-message">{error}</div> : activities.length === 0 ? <div className="empty-state"><p>No activity yet</p></div> : (<div className="activity-list">{activities.map(a => (<div key={a.id} className="activity-item"><div className="activity-icon" style={{ background: getColor(a.action) + '20', color: getColor(a.action) }}>{getIcon(a.action)}</div><div className="activity-details"><div className="activity-summary"><strong>{a.userEmail}</strong> {a.action} <strong>{a.locationName}</strong></div><div className="activity-time">{formatTime(a.timestamp)}</div>{a.changes && a.changes.length > 0 && <div className="activity-changes">{a.changes.map((c, i) => <div key={i} className="change-item"><span className="change-field">{c.field}:</span><span className="change-before">{String(c.before)}</span><span className="change-arrow">→</span><span className="change-after">{String(c.after)}</span></div>)}</div>}{a.action === 'deleted' && a.changes && a.changes.deletedLocation && <div className="activity-changes deleted-info"><div className="change-item">Deleted: {a.changes.deletedLocation.name} ({a.changes.deletedLocation.locationType})</div></div>}</div></div>))}</div>)}</div></div></div>);
+  return (<div className="modal-overlay"><div className="modal activity-modal"><div className="modal-header"><h2><History size={20} /> Activity Log</h2><div className="modal-header-actions">{userRole === 'owner' && activities.length > 0 && <button onClick={clearActivityLog} disabled={clearing} className="clear-log-btn">{clearing ? 'Clearing...' : 'Clear All'}</button>}<button onClick={onClose} className="close-button"><X size={24} /></button></div></div><div className="activity-log-content">{loading ? <div className="loading"><div className="spinner"></div></div> : error ? <div className="error-message">{error}</div> : activities.length === 0 ? <div className="empty-state"><p>No activity yet</p></div> : (<div className="activity-list">{activities.map(a => (<div key={a.id} className="activity-item"><div className="activity-icon" style={{ background: getColor(a.action) + '20', color: getColor(a.action) }}>{getIcon(a.action)}</div><div className="activity-details"><div className="activity-summary"><strong>{a.userEmail}</strong> {a.action} <strong>{a.locationName}</strong></div><div className="activity-time">{formatTime(a.timestamp)}</div>{a.changes && a.changes.length > 0 && <div className="activity-changes">{a.changes.map((c, i) => <div key={i} className="change-item"><span className="change-field">{c.field}:</span><span className="change-before">{String(c.before)}</span><span className="change-arrow">→</span><span className="change-after">{String(c.after)}</span></div>)}</div>}{a.action === 'deleted' && a.changes && a.changes.deletedLocation && <div className="activity-changes deleted-info"><div className="change-item">Deleted: {a.changes.deletedLocation.name} ({a.changes.deletedLocation.locationType})</div></div>}</div></div>))}</div>)}</div></div></div>);
 }
 
 function TrashModal({ userOrg, userEmail, onClose }) {
@@ -389,6 +402,1003 @@ function EquipmentOrdersModal({ onClose }) {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InventoryModal({ userId, onClose }) {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [scannedItems, setScannedItems] = useState([]);
+  const [bufferItems, setBufferItems] = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [manualSerial, setManualSerial] = useState('');
+  const [lastScanned, setLastScanned] = useState(null);
+  const [aiProcessing, setAiProcessing] = useState(false);
+  const scannerRef = useRef(null);
+  const html5QrCodeRef = useRef(null);
+  const lastScannedCodeRef = useRef(null);
+  const lastScanTimeRef = useRef(0);
+  const bufferFileRef = useRef(null);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  // Load saved inventory from localStorage (will move to Firebase later)
+  useEffect(() => {
+    const saved = localStorage.getItem(`inventory_${userId}`);
+    if (saved) {
+      const data = JSON.parse(saved);
+      setScannedItems(data.scannedItems || []);
+      setBufferItems(data.bufferItems || []);
+    }
+  }, [userId]);
+
+  // Save to localStorage whenever items change
+  useEffect(() => {
+    if (userId) {
+      localStorage.setItem(`inventory_${userId}`, JSON.stringify({ scannedItems, bufferItems }));
+    }
+  }, [scannedItems, bufferItems, userId]);
+
+  const addManualItem = () => {
+    if (!manualSerial.trim()) return;
+    const serial = manualSerial.trim().toUpperCase();
+    if (scannedItems.find(i => i.serial === serial)) {
+      alert('Item already scanned!');
+      return;
+    }
+    setScannedItems([...scannedItems, { serial, scannedAt: new Date().toISOString() }]);
+    setManualSerial('');
+  };
+
+  const addScannedSerial = (serial) => {
+    const cleanSerial = serial.trim().toUpperCase();
+    if (scannedItems.find(i => i.serial === cleanSerial)) {
+      setLastScanned({ serial: cleanSerial, status: 'duplicate' });
+      return;
+    }
+    setScannedItems(prev => [...prev, { serial: cleanSerial, scannedAt: new Date().toISOString() }]);
+    setLastScanned({ serial: cleanSerial, status: 'added' });
+  };
+
+  const startScanner = async () => {
+    try {
+      const html5QrCode = new Html5Qrcode("barcode-reader");
+      html5QrCodeRef.current = html5QrCode;
+      
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 100 },
+          aspectRatio: 3.0
+        },
+        (decodedText) => {
+          // Extract serial number - look for SN: prefix or just use the code
+          let serial = decodedText;
+          if (decodedText.includes('SN:')) {
+            serial = decodedText.split('SN:')[1].split(/[\s,]/)[0];
+          }
+          const cleanSerial = serial.trim().toUpperCase();
+          
+          // Prevent duplicate scans - must be different code OR 3 seconds cooldown
+          const now = Date.now();
+          if (cleanSerial === lastScannedCodeRef.current && now - lastScanTimeRef.current < 3000) {
+            return; // Same code scanned within 3 seconds, ignore
+          }
+          
+          lastScannedCodeRef.current = cleanSerial;
+          lastScanTimeRef.current = now;
+          addScannedSerial(cleanSerial);
+        },
+        () => {} // ignore errors during scanning
+      );
+      setScanning(true);
+    } catch (err) {
+      console.error('Scanner error:', err);
+      alert('Could not start camera. Make sure you gave camera permission.');
+    }
+  };
+
+  const stopScanner = async () => {
+    if (html5QrCodeRef.current) {
+      try {
+        await html5QrCodeRef.current.stop();
+        html5QrCodeRef.current = null;
+      } catch (err) {
+        console.error('Error stopping scanner:', err);
+      }
+    }
+    setScanning(false);
+    setLastScanned(null);
+  };
+
+  // Cleanup scanner when modal closes or tab changes
+  useEffect(() => {
+    return () => {
+      if (html5QrCodeRef.current) {
+        html5QrCodeRef.current.stop().catch(() => {});
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'scan' && scanning) {
+      stopScanner();
+    }
+  }, [activeTab]);
+
+  // AI-powered buffer sheet reader using Claude
+  const processBufferWithAI = async (file) => {
+    setAiProcessing(true);
+    
+    try {
+      let content = [];
+      const fileType = file.type;
+      const fileName = file.name.toLowerCase();
+      
+      // Handle CSV/Excel as text
+      if (fileName.endsWith('.csv') || fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+        const text = await file.text();
+        content = [{
+          type: 'text',
+          text: `This is a buffer sheet in spreadsheet format. Extract serial numbers ONLY from the FIRST column (Serial No column). Ignore all other columns. Serial numbers for ONTs start with "ADTN" followed by alphanumeric characters. Serial numbers for routers start with "8612", "854", or "841" followed by alphanumeric characters. Return ONLY the serial numbers, one per line, nothing else.\n\nData:\n${text}`
+        }];
+      }
+      // Handle PDF as base64
+      else if (fileType === 'application/pdf' || fileName.endsWith('.pdf')) {
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(file);
+        });
+        content = [
+          {
+            type: 'document',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              data: base64
+            }
+          },
+          {
+            type: 'text',
+            text: 'This is a buffer sheet showing equipment inventory. Extract serial numbers ONLY from the FIRST/LEFT column labeled "Serial No". Ignore all other columns. Serial numbers for ONTs start with "ADTN" followed by alphanumeric characters. Serial numbers for routers start with "8612", "854", or "841" followed by alphanumeric characters. Return ONLY the serial numbers from the first column, one per line, nothing else. No explanations, no headers, just the serial numbers.'
+          }
+        ];
+      }
+      // Handle images - compress first
+      else {
+        const compressImage = (file) => {
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const img = new Image();
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const maxDim = 2000;
+                if (width > maxDim || height > maxDim) {
+                  if (width > height) {
+                    height = (height / width) * maxDim;
+                    width = maxDim;
+                  } else {
+                    width = (width / height) * maxDim;
+                    height = maxDim;
+                  }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                resolve(base64);
+              };
+              img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+          });
+        };
+        
+        const base64 = await compressImage(file);
+        content = [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/jpeg',
+              data: base64
+            }
+          },
+          {
+            type: 'text',
+            text: 'This is a buffer sheet showing equipment inventory in a table format. Extract serial numbers ONLY from the FIRST/LEFT column labeled "Serial No". Ignore all other columns. Serial numbers for ONTs start with "ADTN" followed by alphanumeric characters. Serial numbers for routers start with "8612", "854", or "841" followed by alphanumeric characters. Return ONLY the serial numbers from the first column, one per line, nothing else. No explanations, no headers, just the serial numbers.'
+          }
+        ];
+      }
+      
+      const apiKey = process.env.REACT_APP_ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        throw new Error('AI scanning not configured. Contact admin.');
+      }
+      
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 4096,
+          messages: [{
+            role: 'user',
+            content: content
+          }]
+        })
+      });
+      
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || 'API request failed');
+      }
+      
+      const data = await response.json();
+      const text = data.content[0].text;
+      
+      // Parse the serial numbers from response
+      const serials = text.split('\n')
+        .map(s => s.trim().toUpperCase())
+        .filter(s => s.match(/^(ADTN|8612|854|841)/i));
+      
+      if (serials.length === 0) {
+        alert('No serial numbers found in image. Make sure the buffer sheet is clearly visible.');
+      } else {
+        let addedCount = 0;
+        serials.forEach(serial => {
+          if (!bufferItems.find(i => i.serial === serial)) {
+            setBufferItems(prev => [...prev, { serial, part: 'Unknown' }]);
+            addedCount++;
+          }
+        });
+        alert(`Found ${serials.length} serial numbers, added ${addedCount} new items.`);
+      }
+    } catch (err) {
+      console.error('AI processing error:', err);
+      alert('Failed to process image: ' + err.message);
+    }
+    
+    setAiProcessing(false);
+    if (bufferFileRef.current) bufferFileRef.current.value = '';
+  };
+
+  const removeScannedItem = (serial) => {
+    setScannedItems(scannedItems.filter(i => i.serial !== serial));
+  };
+
+  const clearScannedItems = () => {
+    if (window.confirm('Clear all scanned items?')) {
+      setScannedItems([]);
+    }
+  };
+
+  const clearBufferItems = () => {
+    if (window.confirm('Clear buffer sheet data?')) {
+      setBufferItems([]);
+    }
+  };
+
+  // Comparison logic
+  const getComparison = () => {
+    const scannedSerials = new Set(scannedItems.map(i => i.serial));
+    const bufferSerials = new Set(bufferItems.map(i => i.serial));
+    
+    const matched = scannedItems.filter(i => bufferSerials.has(i.serial));
+    const missing = bufferItems.filter(i => !scannedSerials.has(i.serial));
+    const extra = scannedItems.filter(i => !bufferSerials.has(i.serial));
+    
+    return { matched, missing, extra };
+  };
+
+  const comparison = getComparison();
+
+  const openReportForm = (item) => {
+    const formUrl = 'https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u';
+    window.open(formUrl, '_blank');
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal inventory-modal">
+        <div className="modal-header">
+          <h2><ClipboardList size={20} /> My Inventory</h2>
+          <button onClick={onClose} className="close-button"><X size={24} /></button>
+        </div>
+        
+        <div className="inventory-tabs">
+          <button onClick={() => setActiveTab('overview')} className={`inv-tab ${activeTab === 'overview' ? 'active' : ''}`}>Overview</button>
+          <button onClick={() => setActiveTab('scan')} className={`inv-tab ${activeTab === 'scan' ? 'active' : ''}`}>Scan Truck</button>
+          <button onClick={() => setActiveTab('buffer')} className={`inv-tab ${activeTab === 'buffer' ? 'active' : ''}`}>Buffer Sheet</button>
+          <button onClick={() => setActiveTab('compare')} className={`inv-tab ${activeTab === 'compare' ? 'active' : ''}`}>Compare</button>
+        </div>
+
+        <div className="inventory-content">
+          {activeTab === 'overview' && (
+            <div className="inv-overview">
+              <div className="inv-stats">
+                <div className="inv-stat">
+                  <div className="inv-stat-number">{scannedItems.length}</div>
+                  <div className="inv-stat-label">On Truck</div>
+                </div>
+                <div className="inv-stat">
+                  <div className="inv-stat-number">{bufferItems.length}</div>
+                  <div className="inv-stat-label">On Buffer</div>
+                </div>
+                <div className="inv-stat matched">
+                  <div className="inv-stat-number">{comparison.matched.length}</div>
+                  <div className="inv-stat-label">Matched</div>
+                </div>
+                <div className="inv-stat missing">
+                  <div className="inv-stat-number">{comparison.missing.length}</div>
+                  <div className="inv-stat-label">Missing</div>
+                </div>
+              </div>
+              
+              <div className="inv-instructions">
+                <h3>How to use:</h3>
+                <ol>
+                  <li><strong>Scan Truck</strong> - Scan barcodes or enter serial numbers for equipment on your truck</li>
+                  <li><strong>Buffer Sheet</strong> - Take photo of your buffer sheet to import what should be on your truck</li>
+                  <li><strong>Compare</strong> - See what's missing, extra, or matched</li>
+                </ol>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'scan' && (
+            <div className="inv-scan">
+              <div className="scanner-section">
+                <div id="barcode-reader" ref={scannerRef}></div>
+                {!scanning ? (
+                  <button onClick={startScanner} className="start-scanner-btn">
+                    <ScanLine size={20} /> Start Barcode Scanner
+                  </button>
+                ) : (
+                  <button onClick={stopScanner} className="stop-scanner-btn">
+                    <StopCircle size={20} /> Stop Scanner
+                  </button>
+                )}
+                {lastScanned && (
+                  <div className={`last-scanned ${lastScanned.status}`}>
+                    {lastScanned.status === 'added' ? '✅' : '⚠️'} {lastScanned.serial}
+                    {lastScanned.status === 'duplicate' && ' (already scanned)'}
+                  </div>
+                )}
+              </div>
+
+              <div className="scan-input-section">
+                <h3>Manual Entry</h3>
+                <p className="scan-hint">Or type/paste serial number</p>
+                <div className="manual-input">
+                  <input 
+                    type="text" 
+                    value={manualSerial} 
+                    onChange={e => setManualSerial(e.target.value.toUpperCase())}
+                    placeholder="e.g. ADTN2516571E"
+                    onKeyPress={e => e.key === 'Enter' && addManualItem()}
+                  />
+                  <button onClick={addManualItem} className="add-serial-btn">Add</button>
+                </div>
+              </div>
+
+              <div className="scanned-list">
+                <div className="scanned-header">
+                  <h3>Scanned Items ({scannedItems.length})</h3>
+                  {scannedItems.length > 0 && <button onClick={clearScannedItems} className="clear-btn">Clear All</button>}
+                </div>
+                {scannedItems.length === 0 ? (
+                  <p className="empty-list">No items scanned yet</p>
+                ) : (
+                  <div className="item-list">
+                    {scannedItems.map((item, idx) => (
+                      <div key={idx} className="scanned-item">
+                        <span className="item-serial">{item.serial}</span>
+                        <button onClick={() => removeScannedItem(item.serial)} className="remove-item-btn"><X size={16} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'buffer' && (
+            <div className="inv-buffer">
+              <div className="ai-scan-section">
+                <h3>🤖 Scan Buffer Sheet with AI</h3>
+                <p className="scan-hint">Take a photo or upload a file (PDF, Excel, image) - AI will extract serial numbers</p>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment"
+                  ref={bufferFileRef}
+                  onChange={e => e.target.files[0] && processBufferWithAI(e.target.files[0])}
+                  style={{ display: 'none' }}
+                  id="ai-buffer-photo"
+                />
+                <input 
+                  type="file" 
+                  accept=".pdf,.xlsx,.xls,.csv,image/*"
+                  onChange={e => e.target.files[0] && processBufferWithAI(e.target.files[0])}
+                  style={{ display: 'none' }}
+                  id="ai-buffer-file"
+                />
+                <div className="ai-btn-group">
+                  <label htmlFor="ai-buffer-photo" className={`ai-scan-btn ${aiProcessing ? 'processing' : ''}`}>
+                    {aiProcessing ? '🤖 AI Reading...' : '📷 Take Photo'}
+                  </label>
+                  <label htmlFor="ai-buffer-file" className={`ai-scan-btn upload-btn ${aiProcessing ? 'processing' : ''}`}>
+                    {aiProcessing ? '🤖 AI Reading...' : '📄 Upload File'}
+                  </label>
+                </div>
+              </div>
+
+              <div className="buffer-manual">
+                <h4>Or Paste Manually</h4>
+                <p className="scan-hint">Paste serial numbers (one per line)</p>
+                <textarea 
+                  placeholder="ADTN2516571E&#10;8612A14510019131&#10;ADTN25181D71"
+                  rows={4}
+                  id="buffer-paste"
+                ></textarea>
+                <button onClick={() => {
+                  const text = document.getElementById('buffer-paste').value;
+                  const serials = text.split(/[\n,\s]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 5);
+                  const newItems = serials.filter(s => !bufferItems.find(b => b.serial === s)).map(s => ({ serial: s, part: 'Unknown' }));
+                  setBufferItems([...bufferItems, ...newItems]);
+                  document.getElementById('buffer-paste').value = '';
+                  if (newItems.length > 0) alert(`Added ${newItems.length} items`);
+                  else if (serials.length > 0) alert('All items already in list');
+                  else alert('No serial numbers found');
+                }} className="add-serial-btn">Add to Buffer</button>
+              </div>
+
+              <div className="buffer-list">
+                <div className="scanned-header">
+                  <h3>Buffer Items ({bufferItems.length})</h3>
+                  {bufferItems.length > 0 && <button onClick={clearBufferItems} className="clear-btn">Clear All</button>}
+                </div>
+                {bufferItems.length === 0 ? (
+                  <p className="empty-list">No buffer items yet</p>
+                ) : (
+                  <div className="item-list">
+                    {bufferItems.map((item, idx) => (
+                      <div key={idx} className="buffer-item">
+                        <span className="item-serial">{item.serial}</span>
+                        {item.part && item.part !== 'Unknown' && <span className="item-part">{item.part}</span>}
+                        <button onClick={() => setBufferItems(bufferItems.filter(b => b.serial !== item.serial))} className="remove-item-btn"><X size={16} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'compare' && (
+            <div className="inv-compare">
+              {scannedItems.length === 0 && bufferItems.length === 0 ? (
+                <div className="compare-empty">
+                  <p>Add items to both your truck scan and buffer sheet to compare.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="compare-section matched-section">
+                    <h3><CheckCircle size={18} color="#22c55e" /> Matched ({comparison.matched.length})</h3>
+                    {comparison.matched.length === 0 ? (
+                      <p className="empty-list">No matched items</p>
+                    ) : (
+                      <div className="compare-items">
+                        {comparison.matched.map((item, idx) => (
+                          <div key={idx} className="compare-item matched">{item.serial}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="compare-section missing-section">
+                    <h3><XCircle size={18} color="#ef4444" /> Missing from Truck ({comparison.missing.length})</h3>
+                    <p className="section-hint">On buffer but not scanned</p>
+                    {comparison.missing.length === 0 ? (
+                      <p className="empty-list">Nothing missing!</p>
+                    ) : (
+                      <div className="compare-items">
+                        {comparison.missing.map((item, idx) => (
+                          <div key={idx} className="compare-item missing">
+                            <span>{item.serial}</span>
+                            <button onClick={() => openReportForm(item)} className="report-btn">Report</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="compare-section extra-section">
+                    <h3><AlertTriangle size={18} color="#f97316" /> Extra on Truck ({comparison.extra.length})</h3>
+                    <p className="section-hint">Scanned but not on buffer</p>
+                    {comparison.extra.length === 0 ? (
+                      <p className="empty-list">No extra items</p>
+                    ) : (
+                      <div className="compare-items">
+                        {comparison.extra.map((item, idx) => (
+                          <div key={idx} className="compare-item extra">{item.serial}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function SettingsModal({ user, locations, onClose }) {
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = ''; }; }, []);
+
+  const exportCSV = () => {
+    if (!locations || locations.length === 0) { alert('No locations to export'); return; }
+    const headers = ['Name', 'Address', 'Type', 'Latitude', 'Longitude', 'Created'];
+    const rows = locations.map(loc => [
+      loc.name || '',
+      loc.address || '',
+      loc.locationType || '',
+      loc.lat || '',
+      loc.lng || '',
+      loc.createdAt?.toDate?.()?.toLocaleDateString() || ''
+    ]);
+    const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `fidloc-locations-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportPDF = () => {
+    if (!locations || locations.length === 0) { alert('No locations to export'); return; }
+    const content = locations.map(loc => `${loc.name}\n${loc.address || 'No address'}\nType: ${loc.locationType || 'Unknown'}\nCoords: ${loc.lat}, ${loc.lng}\n`).join('\n---\n\n');
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`<html><head><title>FidLoc Locations</title><style>body{font-family:Arial,sans-serif;padding:20px;} h1{color:#3b82f6;} pre{white-space:pre-wrap;}</style></head><body><h1>FidLoc Locations Export</h1><p>Exported: ${new Date().toLocaleString()}</p><p>Total: ${locations.length} locations</p><hr><pre>${content}</pre></body></html>`);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  const clearCache = () => {
+    if (window.confirm('Clear local settings? This will reset your theme preference and other cached data.\n\nNote: Your inventory data will be preserved.')) {
+      const inventoryData = localStorage.getItem('fidloc-inventory');
+      localStorage.clear();
+      if (inventoryData) localStorage.setItem('fidloc-inventory', inventoryData);
+      alert('Cache cleared! The page will reload.');
+      window.location.reload();
+    }
+  };
+
+  const reportBug = () => {
+    const choice = window.confirm('How would you like to report?\n\nOK = Email\nCancel = Text Message');
+    if (choice) {
+      const subject = encodeURIComponent('FidLoc Bug Report');
+      const body = encodeURIComponent(`Bug Description:\n\n\nSteps to Reproduce:\n1. \n2. \n3. \n\nExpected Behavior:\n\n\nActual Behavior:\n\n\n---\nApp Version: 1.0.0\nUser: ${user?.email || 'Unknown'}\nDevice: ${navigator.userAgent}`);
+      window.open(`mailto:darrencouturier@live.com?subject=${subject}&body=${body}`, '_blank');
+    } else {
+      const body = encodeURIComponent(`FidLoc Bug Report\n\nUser: ${user?.email || 'Unknown'}\n\nBug:\n`);
+      window.open(`sms:6039488812?body=${body}`, '_blank');
+    }
+  };
+  
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal settings-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{showPrivacy ? 'Privacy Policy' : 'Settings'}</h2>
+          <button onClick={() => showPrivacy ? setShowPrivacy(false) : onClose()} className="close-btn"><X size={24} /></button>
+        </div>
+        <div className="modal-body settings-body">
+          
+          {showPrivacy ? (
+            <div className="privacy-content">
+              <h3>FidLoc Privacy Policy</h3>
+              <p><strong>Last Updated:</strong> January 2025</p>
+              
+              <h4>Information We Collect</h4>
+              <p>FidLoc collects the following information to provide our service:</p>
+              <ul>
+                <li><strong>Account Information:</strong> Email address and display name for authentication</li>
+                <li><strong>Location Data:</strong> GPS coordinates and addresses you save as drop locations</li>
+                <li><strong>Device Information:</strong> Browser type and device info for troubleshooting</li>
+                <li><strong>Inventory Data:</strong> Equipment serial numbers you scan or enter</li>
+              </ul>
+
+              <h4>How We Use Your Information</h4>
+              <ul>
+                <li>To provide and maintain the FidLoc service</li>
+                <li>To allow team collaboration on shared locations</li>
+                <li>To sync your data across devices</li>
+                <li>To improve the app based on usage patterns</li>
+              </ul>
+
+              <h4>Data Storage</h4>
+              <p>Your data is stored securely in Google Firebase servers. Location data is associated with your organization and shared with team members you invite.</p>
+
+              <h4>Data Sharing</h4>
+              <p>We do not sell or share your personal information with third parties. Your location data is only visible to members of your organization.</p>
+
+              <h4>Your Rights</h4>
+              <ul>
+                <li>Export your data at any time using the Export feature</li>
+                <li>Delete your account by contacting support</li>
+                <li>Clear local cached data from Settings</li>
+              </ul>
+
+              <h4>Contact</h4>
+              <p>For privacy questions, contact: darrencouturier@live.com</p>
+              
+              <button onClick={() => setShowPrivacy(false)} className="settings-btn">Back to Settings</button>
+            </div>
+          ) : (
+            <>
+              <div className="settings-section">
+                <h3>Profile</h3>
+                <div className="settings-item">
+                  <span className="settings-label">Display Name</span>
+                  <span className="settings-value coming">{user?.displayName || 'Not set'}</span>
+                </div>
+                <div className="settings-item">
+                  <span className="settings-label">Email</span>
+                  <span className="settings-value">{user?.email}</span>
+                </div>
+                <button className="settings-btn disabled" disabled>Change Password</button>
+                <button className="settings-btn disabled" disabled>Update Profile Photo</button>
+              </div>
+
+              <div className="settings-section">
+                <h3>Preferences</h3>
+                <div className="settings-item">
+                  <span className="settings-label">Default View</span>
+                  <span className="settings-value coming">Coming Soon</span>
+                </div>
+                <div className="settings-item">
+                  <span className="settings-label">Default Map Type</span>
+                  <span className="settings-value coming">Coming Soon</span>
+                </div>
+                <div className="settings-item">
+                  <span className="settings-label">Sort Locations By</span>
+                  <span className="settings-value coming">Coming Soon</span>
+                </div>
+                <div className="settings-item">
+                  <span className="settings-label">Show Distance</span>
+                  <span className="settings-value coming">Coming Soon</span>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <h3>Notifications</h3>
+                <div className="settings-item">
+                  <span className="settings-label">New Team Member</span>
+                  <span className="settings-value coming">Coming Soon</span>
+                </div>
+                <div className="settings-item">
+                  <span className="settings-label">Location Updates</span>
+                  <span className="settings-value coming">Coming Soon</span>
+                </div>
+                <div className="settings-item">
+                  <span className="settings-label">Equipment Orders</span>
+                  <span className="settings-value coming">Coming Soon</span>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <h3>Data</h3>
+                <button onClick={exportCSV} className="settings-btn">Export Locations (CSV)</button>
+                <button onClick={exportPDF} className="settings-btn">Export Locations (PDF)</button>
+                <button onClick={clearCache} className="settings-btn danger">Clear Local Cache</button>
+              </div>
+
+              <div className="settings-section">
+                <h3>About</h3>
+                <div className="settings-item">
+                  <span className="settings-label">Version</span>
+                  <span className="settings-value">1.0.0</span>
+                </div>
+                <button className="settings-btn disabled" disabled>What's New</button>
+                <button onClick={reportBug} className="settings-btn">Report a Bug</button>
+                <button onClick={() => setShowPrivacy(true)} className="settings-btn">Privacy Policy</button>
+              </div>
+            </>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function DropMeasureModal({ onClose }) {
+  const [phase, setPhase] = useState('ready'); // ready, walking1, marked, walking2, complete
+  const [accuracy, setAccuracy] = useState(null);
+  const [distance1, setDistance1] = useState(null);
+  const [distance2, setDistance2] = useState(null);
+  const [pathPoints, setPathPoints] = useState([]);
+  const [markPoint, setMarkPoint] = useState(null);
+  const [watchId, setWatchId] = useState(null);
+  const [error, setError] = useState(null);
+  const [currentPos, setCurrentPos] = useState(null);
+  const phaseRef = useRef(phase);
+
+  // Keep ref in sync with state
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [watchId]);
+
+  const calculatePathDistance = (points) => {
+    if (points.length < 2) return 0;
+    let total = 0;
+    for (let i = 1; i < points.length; i++) {
+      const R = 20902231; // Earth radius in feet
+      const dLat = (points[i].lat - points[i-1].lat) * Math.PI / 180;
+      const dLon = (points[i].lng - points[i-1].lng) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(points[i-1].lat * Math.PI / 180) * Math.cos(points[i].lat * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+      total += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+    return total;
+  };
+
+  const handleStart = () => {
+    if (!navigator.geolocation) {
+      setError('GPS not available on this device');
+      return;
+    }
+    setError(null);
+    setPhase('walking1');
+    
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const startPt = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setPathPoints([startPt]);
+        setCurrentPos(startPt);
+        setAccuracy(Math.round(pos.coords.accuracy * 3.281));
+        
+        // Start watching position
+        const id = navigator.geolocation.watchPosition(
+          (position) => {
+            const { latitude, longitude, accuracy: acc } = position.coords;
+            setAccuracy(Math.round(acc * 3.281));
+            setCurrentPos({ lat: latitude, lng: longitude });
+            
+            // Add point if accuracy is decent and we're walking
+            if (acc <= 20 && (phaseRef.current === 'walking1' || phaseRef.current === 'walking2')) {
+              setPathPoints(prev => [...prev, { lat: latitude, lng: longitude }]);
+            }
+          },
+          (err) => {
+            if (err.code === 1) setError('Location permission denied');
+            else if (err.code === 2) setError('GPS unavailable - check Location Services');
+            else setError('GPS error: ' + err.message);
+          },
+          { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+        );
+        setWatchId(id);
+      },
+      (err) => {
+        if (err.code === 1) setError('Location permission denied');
+        else if (err.code === 2) setError('GPS unavailable - check Location Services');
+        else if (err.code === 3) setError('GPS timed out - try outside');
+        else setError('GPS error');
+        setPhase('ready');
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  };
+
+  const handleMark = () => {
+    const dist = calculatePathDistance(pathPoints);
+    setDistance1(Math.round(dist));
+    setMarkPoint(currentPos);
+    setPhase('marked');
+  };
+
+  const handleContinue = () => {
+    setPathPoints(markPoint ? [markPoint] : [currentPos]);
+    setPhase('walking2');
+  };
+
+  const handleEnd = () => {
+    const dist = calculatePathDistance(pathPoints);
+    setDistance2(Math.round(dist));
+    setPhase('complete');
+    if (watchId) {
+      navigator.geolocation.clearWatch(watchId);
+      setWatchId(null);
+    }
+  };
+
+  const handleReset = () => {
+    if (watchId) {
+      navigator.geolocation.clearWatch(watchId);
+      setWatchId(null);
+    }
+    setPhase('ready');
+    setAccuracy(null);
+    setDistance1(null);
+    setDistance2(null);
+    setPathPoints([]);
+    setMarkPoint(null);
+    setCurrentPos(null);
+    setError(null);
+  };
+
+  const liveDistance = calculatePathDistance(pathPoints);
+  const avgDistance = distance1 && distance2 ? Math.round((distance1 + distance2) / 2) : null;
+  const variance = distance1 && distance2 ? Math.abs(distance1 - distance2) : null;
+  const recommendedDrop = avgDistance ? Math.ceil((avgDistance * 1.15) / 50) * 50 : null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal drop-measure-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2><Ruler size={24} /> Drop Measure</h2>
+          <button onClick={onClose} className="close-btn"><X size={24} /></button>
+        </div>
+        <div className="modal-body drop-measure-body">
+          
+          {error && <div className="measure-error">{error}</div>}
+          
+          {phase === 'ready' && (
+            <div className="measure-phase">
+              <div className="measure-instructions">
+                <h3>How to Measure</h3>
+                <ol>
+                  <li>Stand at the <strong>house/NID</strong></li>
+                  <li>Tap <strong>Start</strong> and walk to the FDT/pole</li>
+                  <li>Tap <strong>Mark</strong> when you arrive</li>
+                  <li>Walk back to the house</li>
+                  <li>Tap <strong>End</strong> to get your measurement</li>
+                </ol>
+                <p className="measure-tip">Walking it twice improves accuracy!</p>
+              </div>
+              <button onClick={handleStart} className="measure-btn start-btn">
+                <Navigation size={24} />
+                Start at House
+              </button>
+            </div>
+          )}
+
+          {phase === 'walking1' && (
+            <div className="measure-phase">
+              <div className="measure-status">
+                <div className="status-icon walking">
+                  <Navigation size={32} className="pulse" />
+                </div>
+                <h3>Walking to FDT/Pole...</h3>
+                <div className="accuracy-display">
+                  GPS Accuracy: <span className={accuracy <= 33 ? 'good' : accuracy <= 66 ? 'ok' : 'poor'}>{accuracy || '--'} ft</span>
+                </div>
+                <div className="distance-live">
+                  Distance: {Math.round(liveDistance)} ft
+                </div>
+              </div>
+              <button onClick={handleMark} className="measure-btn mark-btn">
+                <MapPin size={24} />
+                Mark FDT/Pole
+              </button>
+            </div>
+          )}
+
+          {phase === 'marked' && (
+            <div className="measure-phase">
+              <div className="measure-status">
+                <div className="status-icon marked">
+                  <CheckCircle size={32} />
+                </div>
+                <h3>First Leg Complete!</h3>
+                <div className="distance-result">
+                  <span className="distance-label">Distance:</span>
+                  <span className="distance-value">{distance1} ft</span>
+                </div>
+                <p>Now walk back to the house for a more accurate reading.</p>
+              </div>
+              <button onClick={handleContinue} className="measure-btn continue-btn">
+                <RotateCcw size={24} />
+                Walk Back to House
+              </button>
+            </div>
+          )}
+
+          {phase === 'walking2' && (
+            <div className="measure-phase">
+              <div className="measure-status">
+                <div className="status-icon walking">
+                  <Navigation size={32} className="pulse" />
+                </div>
+                <h3>Walking back to House...</h3>
+                <div className="accuracy-display">
+                  GPS Accuracy: <span className={accuracy <= 33 ? 'good' : accuracy <= 66 ? 'ok' : 'poor'}>{accuracy || '--'} ft</span>
+                </div>
+                <div className="distance-live">
+                  Distance: {Math.round(liveDistance)} ft
+                </div>
+                <div className="first-leg-reminder">
+                  First leg: {distance1} ft
+                </div>
+              </div>
+              <button onClick={handleEnd} className="measure-btn end-btn">
+                <StopCircle size={24} />
+                End at House
+              </button>
+            </div>
+          )}
+
+          {phase === 'complete' && (
+            <div className="measure-phase">
+              <div className="measure-results">
+                <div className="status-icon complete">
+                  <CheckCircle size={32} />
+                </div>
+                <h3>Measurement Complete!</h3>
+                
+                <div className="results-grid">
+                  <div className="result-item">
+                    <span className="result-label">Walk 1 (to FDT)</span>
+                    <span className="result-value">{distance1} ft</span>
+                  </div>
+                  <div className="result-item">
+                    <span className="result-label">Walk 2 (to House)</span>
+                    <span className="result-value">{distance2} ft</span>
+                  </div>
+                  <div className="result-item average">
+                    <span className="result-label">Average</span>
+                    <span className="result-value">{avgDistance} ft</span>
+                  </div>
+                  {variance > 20 && (
+                    <div className="result-warning">
+                      <AlertTriangle size={16} />
+                      Measurements differ by {variance} ft - consider re-measuring
+                    </div>
+                  )}
+                </div>
+
+                <div className="recommended-drop">
+                  <span className="rec-label">Recommended Drop</span>
+                  <span className="rec-value">{recommendedDrop} ft</span>
+                  <span className="rec-note">(includes 15% slack)</span>
+                </div>
+              </div>
+              <button onClick={handleReset} className="measure-btn reset-btn">
+                <RotateCcw size={24} />
+                New Measurement
+              </button>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
