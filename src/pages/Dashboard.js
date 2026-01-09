@@ -9,6 +9,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Html5Qrcode } from 'html5-qrcode';
+import * as XLSX from 'xlsx';
 import offlineQueue from '../OfflineQueueManager';
 import themeManager from '../ThemeManager';
 import './Dashboard.css';
@@ -54,6 +55,8 @@ export default function Dashboard() {
   const [editingLocation, setEditingLocation] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [viewMode, setViewMode] = useState('list');
+  const [mapFocusLocation, setMapFocusLocation] = useState(null);
+  const [recentLocations, setRecentLocations] = useState(() => { try { return JSON.parse(localStorage.getItem('fidloc_recent') || '[]'); } catch { return []; } });
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncing, setSyncing] = useState(false);
   const [lastSynced, setLastSynced] = useState(new Date());
@@ -74,10 +77,13 @@ export default function Dashboard() {
   const handleManualSync = async () => { if (!isOnline || syncing) return; setSyncing(true); try { await offlineQueue.syncQueue(); setLastSynced(new Date()); } catch {} setSyncing(false); };
   const handleEdit = (loc) => { setEditingLocation(loc); setShowEditModal(true); };
   const handleDelete = async (loc) => { if (!canDelete) return; try { const trashData = { ...loc, deletedBy: user?.email, deletedAt: Timestamp.now(), originalId: loc.id }; delete trashData.id; await setDoc(doc(db, 'organizations', userOrg, 'trash', loc.id), trashData); await deleteDoc(doc(db, 'organizations', userOrg, 'locations', loc.id)); await logActivity(userOrg, 'deleted', loc.name, user?.email, { deletedLocation: { name: loc.name, address: loc.address, locationType: loc.locationType } }); setDeleteConfirm(null); setSelectedLocation(null); } catch (err) { console.error('Delete failed:', err); } };
+  const handleShowOnMap = (loc) => { if (loc.latitude && loc.longitude) { setMapFocusLocation(loc); setViewMode('map'); } };
   const getDistanceText = (loc) => { if (!userLocation || !loc.latitude || !loc.longitude) return null; const dist = calculateDistance(userLocation.lat, userLocation.lng, loc.latitude, loc.longitude); return dist < 0.1 ? '< 0.1 mi' : dist < 10 ? dist.toFixed(1) + ' mi' : Math.round(dist) + ' mi'; };
   const allLocations = [...locations, ...pendingLocations.map(p => ({ ...p, isPending: true, id: p.pendingId }))];
-  const filteredLocations = allLocations.filter(loc => (!searchText || loc.name?.toLowerCase().includes(searchText.toLowerCase()) || loc.address?.toLowerCase().includes(searchText.toLowerCase())) && (!filterType || normalizeType(loc.locationType) === filterType)).sort((a, b) => { if (a.isPending && !b.isPending) return -1; if (!a.isPending && b.isPending) return 1; if (userLocation) return calculateDistance(userLocation.lat, userLocation.lng, a.latitude, a.longitude) - calculateDistance(userLocation.lat, userLocation.lng, b.latitude, b.longitude); return (a.name || '').localeCompare(b.name || ''); });
-  const handleNavigate = (loc) => window.open('https://www.google.com/maps/dir/?api=1&destination=' + loc.latitude + ',' + loc.longitude, '_blank');
+  const filteredLocations = allLocations.filter(loc => (!searchText || loc.name?.toLowerCase().includes(searchText.toLowerCase()) || loc.address?.toLowerCase().includes(searchText.toLowerCase())) && (!filterType || (filterType === 'Bathroom' ? loc.hasBathroom : normalizeType(loc.locationType) === filterType))).sort((a, b) => { if (a.isPending && !b.isPending) return -1; if (!a.isPending && b.isPending) return 1; if (userLocation) return calculateDistance(userLocation.lat, userLocation.lng, a.latitude, a.longitude) - calculateDistance(userLocation.lat, userLocation.lng, b.latitude, b.longitude); return (a.name || '').localeCompare(b.name || ''); });
+  const addToRecent = (loc) => { const recent = [{ id: loc.id, name: loc.name, locationType: loc.locationType, latitude: loc.latitude, longitude: loc.longitude }, ...recentLocations.filter(r => r.id !== loc.id)].slice(0, 5); setRecentLocations(recent); localStorage.setItem('fidloc_recent', JSON.stringify(recent)); };
+  const handleNavigate = (loc) => { addToRecent(loc); setSelectedLocation(null); const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent); const url = isIOS ? 'maps://maps.apple.com/?daddr=' + loc.latitude + ',' + loc.longitude : 'https://www.google.com/maps/dir/?api=1&destination=' + loc.latitude + ',' + loc.longitude; window.open(url, '_blank'); };
+  const handleQuickNavigate = (recentLoc) => { const fullLoc = allLocations.find(l => l.id === recentLoc.id); const lat = fullLoc?.latitude || recentLoc.latitude; const lng = fullLoc?.longitude || recentLoc.longitude; if (fullLoc) addToRecent(fullLoc); const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent); const url = isIOS ? 'maps://maps.apple.com/?daddr=' + lat + ',' + lng : 'https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng; window.open(url, '_blank'); };
   const handleCopyAddress = (addr) => { navigator.clipboard.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const handleShareLocation = (loc) => { if (loc.isPending) return; navigator.clipboard.writeText(window.location.origin + '/location/' + loc.id); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); };
   const getMapCenter = () => { if (userLocation) return [userLocation.lat, userLocation.lng]; if (filteredLocations.length > 0) return [filteredLocations.reduce((s, l) => s + (l.latitude || 0), 0) / filteredLocations.length, filteredLocations.reduce((s, l) => s + (l.longitude || 0), 0) / filteredLocations.length]; return [43.1939, -71.5724]; };
@@ -105,11 +111,13 @@ export default function Dashboard() {
       {!isOnline && <div className="offline-banner"><WifiOff size={16} /><span>You are offline</span><span className="last-synced">Last synced: {formatTimeAgo(lastSynced)}</span></div>}
       {pendingLocations.length > 0 && isOnline && <div className="pending-banner"><RefreshCw size={16} /><span>{pendingLocations.length} pending</span><button onClick={handleManualSync} disabled={syncing}>{syncing ? 'Syncing...' : 'Sync Now'}</button></div>}
 
-      <div className="search-section"><div className="search-box"><Search size={20} className="search-icon" /><input type="text" placeholder="Search locations..." value={searchText} onChange={(e) => setSearchText(e.target.value)} /></div><div className="filter-pills"><button onClick={() => setFilterType(null)} className={'filter-pill ' + (!filterType ? 'active' : '')}>All ({allLocations.length})</button>{FILTER_TYPES.map(type => <button key={type} onClick={() => setFilterType(filterType === type ? null : type)} className={'filter-pill ' + (filterType === type ? 'active' : '')} style={filterType === type ? { background: LOCATION_TYPES[type].color } : {}}>{LOCATION_TYPES[type].label} ({allLocations.filter(l => normalizeType(l.locationType) === type).length})</button>)}</div></div>
+      {recentLocations.length > 0 && !searchText && !filterType && <div className="recent-section"><div className="recent-header"><History size={16} /><span>Recent</span></div><div className="recent-chips">{recentLocations.map(loc => <button key={loc.id} onClick={() => handleQuickNavigate(loc)} className="recent-chip" style={{ borderColor: LOCATION_TYPES[normalizeType(loc.locationType)]?.color }}><span className="recent-name">{loc.name}</span><Navigation size={14} /></button>)}</div></div>}
 
-      {viewMode === 'map' && (<div className="map-container"><MapContainer center={getMapCenter()} zoom={10} style={{ height: '100%', width: '100%' }}><TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{userLocation && <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon}><Popup>Your Location</Popup></Marker>}{filteredLocations.map(loc => loc.latitude && loc.longitude && (<Marker key={loc.id} position={[loc.latitude, loc.longitude]} icon={loc.isPending ? pendingMarkerIcons[normalizeType(loc.locationType)] : markerIcons[normalizeType(loc.locationType)]}><Popup><div className="popup-content"><strong>{loc.name}</strong><br/><span className="popup-type" style={{ color: LOCATION_TYPES[normalizeType(loc.locationType)]?.color }}>{normalizeType(loc.locationType)}</span><br/>{loc.address}<br/><button onClick={() => handleNavigate(loc)} className="popup-nav-btn">Navigate</button></div></Popup></Marker>))}</MapContainer><div className="map-legend">{FILTER_TYPES.map(type => <div key={type} className="legend-item"><span className="legend-dot" style={{ background: LOCATION_TYPES[type].color }}></span><span>{type}</span></div>)}</div></div>)}
+      <div className="search-section"><div className="search-box"><Search size={20} className="search-icon" /><input type="text" placeholder="Search locations..." value={searchText} onChange={(e) => setSearchText(e.target.value)} /></div><div className="filter-pills-wrapper"><div className="filter-pills"><button onClick={() => setFilterType(null)} className={'filter-pill ' + (!filterType ? 'active' : '')}>All ({allLocations.length})</button><button onClick={() => setFilterType(filterType === 'Bathroom' ? null : 'Bathroom')} className={'filter-pill ' + (filterType === 'Bathroom' ? 'active' : '')} style={filterType === 'Bathroom' ? { background: '#3b82f6' } : {}}>🚻 ({allLocations.filter(l => l.hasBathroom).length})</button><button onClick={() => setFilterType(filterType === 'Hub' ? null : 'Hub')} className={'filter-pill ' + (filterType === 'Hub' ? 'active' : '')} style={filterType === 'Hub' ? { background: LOCATION_TYPES.Hub.color } : {}}>{LOCATION_TYPES.Hub.label} ({allLocations.filter(l => normalizeType(l.locationType) === 'Hub').length})</button><button onClick={() => setFilterType(filterType === 'Hut' ? null : 'Hut')} className={'filter-pill ' + (filterType === 'Hut' ? 'active' : '')} style={filterType === 'Hut' ? { background: LOCATION_TYPES.Hut.color } : {}}>{LOCATION_TYPES.Hut.label} ({allLocations.filter(l => normalizeType(l.locationType) === 'Hut').length})</button><button onClick={() => setFilterType(filterType === 'CO' ? null : 'CO')} className={'filter-pill ' + (filterType === 'CO' ? 'active' : '')} style={filterType === 'CO' ? { background: LOCATION_TYPES.CO.color } : {}}>{LOCATION_TYPES.CO.label} ({allLocations.filter(l => normalizeType(l.locationType) === 'CO').length})</button><button onClick={() => setFilterType(filterType === 'Garage' ? null : 'Garage')} className={'filter-pill ' + (filterType === 'Garage' ? 'active' : '')} style={filterType === 'Garage' ? { background: LOCATION_TYPES.Garage.color } : {}}>{LOCATION_TYPES.Garage.label} ({allLocations.filter(l => normalizeType(l.locationType) === 'Garage').length})</button></div><div className="scroll-hint">→</div></div></div>
 
-      {viewMode === 'list' && (<div className="locations-list">{loading ? <div className="loading"><div className="spinner"></div><p>Loading...</p></div> : filteredLocations.length === 0 ? <div className="empty-state"><MapPin size={48} /><p>No locations found</p></div> : filteredLocations.map(loc => (<LocationCard key={loc.id} location={loc} distance={getDistanceText(loc)} onNavigate={handleNavigate} onCopyAddress={handleCopyAddress} onShare={handleShareLocation} onEdit={handleEdit} onDelete={(l) => setDeleteConfirm(l)} isSelected={selectedLocation?.id === loc.id} onSelect={() => setSelectedLocation(selectedLocation?.id === loc.id ? null : loc)} copied={copied} linkCopied={linkCopied} isDuplicate={allLocations.filter(l => l.name?.toLowerCase() === loc.name?.toLowerCase() && normalizeType(l.locationType) === normalizeType(loc.locationType)).length > 1} canEdit={canEdit} canDelete={canDelete} canViewMeta={canViewActivityLog} />))}</div>)}
+      {viewMode === 'map' && (<div className="map-container"><MapContainer center={mapFocusLocation ? [mapFocusLocation.latitude, mapFocusLocation.longitude] : getMapCenter()} zoom={mapFocusLocation ? 15 : 10} style={{ height: '100%', width: '100%' }} key={mapFocusLocation?.id || 'default'}><TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{userLocation && <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon}><Popup>Your Location</Popup></Marker>}{filteredLocations.map(loc => loc.latitude && loc.longitude && (<Marker key={loc.id} position={[loc.latitude, loc.longitude]} icon={loc.isPending ? pendingMarkerIcons[normalizeType(loc.locationType)] : markerIcons[normalizeType(loc.locationType)]}><Popup><div className="popup-content"><div className="popup-name">{loc.name || 'Unnamed'}</div><div className="popup-header">{loc.requiresLadder && <span className="popup-ladder">🪜</span>}{loc.hasLadderBracket && <span className="popup-bracket">✓</span>}{loc.hasBathroom && <span className="popup-bathroom">🚻</span>}</div><span className="popup-type" style={{ color: LOCATION_TYPES[normalizeType(loc.locationType)]?.color }}>{normalizeType(loc.locationType)}{loc.requiresLadder && ' • Needs Ladder'}{loc.hasLadderBracket && ' • Has Bracket'}{loc.hasBathroom && ' • Bathroom'}</span><div className="popup-address">{loc.address}</div>{loc.notes && <div className="popup-notes">{loc.notes}</div>}<button onClick={() => handleNavigate(loc)} className="popup-nav-btn"><Navigation size={14} /> Navigate</button></div></Popup></Marker>))}</MapContainer><div className="map-legend">{FILTER_TYPES.map(type => <div key={type} className="legend-item"><span className="legend-dot" style={{ background: LOCATION_TYPES[type].color }}></span><span>{type}</span></div>)}</div></div>)}
+
+      {viewMode === 'list' && (<div className="locations-list">{loading ? <div className="loading"><div className="spinner"></div><p>Loading...</p></div> : filteredLocations.length === 0 ? <div className="empty-state"><MapPin size={48} /><p>No locations found</p></div> : filteredLocations.map(loc => (<LocationCard key={loc.id} location={loc} distance={getDistanceText(loc)} onNavigate={handleNavigate} onCopyAddress={handleCopyAddress} onShare={handleShareLocation} onEdit={handleEdit} onDelete={(l) => setDeleteConfirm(l)} onShowOnMap={handleShowOnMap} isSelected={selectedLocation?.id === loc.id} onSelect={() => setSelectedLocation(selectedLocation?.id === loc.id ? null : loc)} copied={copied} linkCopied={linkCopied} isDuplicate={allLocations.filter(l => l.name?.toLowerCase() === loc.name?.toLowerCase() && normalizeType(l.locationType) === normalizeType(loc.locationType)).length > 1} canEdit={canEdit} canDelete={canDelete} canViewMeta={canViewActivityLog} />))}</div>)}
 
       {showAddModal && <AddLocationModal userOrg={userOrg} userEmail={user?.email} onClose={() => setShowAddModal(false)} existingLocations={allLocations} isOnline={isOnline} />}
       {showEditModal && editingLocation && <EditLocationModal location={editingLocation} userOrg={userOrg} userEmail={user?.email} onClose={() => { setShowEditModal(false); setEditingLocation(null); }} isOnline={isOnline} />}
@@ -125,29 +133,29 @@ export default function Dashboard() {
   );
 }
 
-function LocationCard({ location, distance, onNavigate, onCopyAddress, onShare, onEdit, onDelete, isSelected, onSelect, copied, linkCopied, isDuplicate, canEdit, canDelete, canViewMeta }) {
+function LocationCard({ location, distance, onNavigate, onCopyAddress, onShare, onEdit, onDelete, onShowOnMap, isSelected, onSelect, copied, linkCopied, isDuplicate, canEdit, canDelete, canViewMeta }) {
   const typeConfig = LOCATION_TYPES[normalizeType(location.locationType)] || LOCATION_TYPES.Hub;
   return (
-    <div className={'location-card ' + (isSelected ? 'selected ' : '') + (isDuplicate ? 'duplicate ' : '') + (location.isPending ? 'pending' : '')}><button onClick={onSelect} className="location-card-main"><div className="location-icon" style={{ background: typeConfig.color + '20' }}><MapPin size={24} color={typeConfig.color} /></div><div className="location-info"><div className="location-name"><span>{location.name}</span>{location.requiresLadder && <span className="ladder-icon">🪜</span>}{location.isPending && <span className="pending-badge">Pending</span>}</div><p className="location-address">{location.address}</p><div className="location-badges"><span className="type-badge" style={{ background: typeConfig.color + '20', color: typeConfig.color }}>{typeConfig.label}</span>{location.hasLadderBracket && <span className="bracket-badge">Has Bracket</span>}</div></div>{distance && <div className="location-distance">{distance}</div>}</button>
-      {isSelected && (<div className="location-details">{location.notes && <p className="location-notes">{location.notes}</p>}<div className="location-meta"><div className="location-coords">{location.latitude?.toFixed(6)}, {location.longitude?.toFixed(6)}</div>{canViewMeta && !location.isPending && <div className="location-added-by">Added by: {location.createdBy || 'Unknown'}{location.createdAt && <span> on {(location.createdAt.toDate ? location.createdAt.toDate() : new Date(location.createdAt)).toLocaleDateString()}</span>}</div>}{canViewMeta && location.lastModifiedBy && <div className="location-modified-by">Edited by: {location.lastModifiedBy}{location.lastModified && <span> on {(location.lastModified.toDate ? location.lastModified.toDate() : new Date(location.lastModified)).toLocaleDateString()}</span>}</div>}{location.isPending && <div className="location-added-by pending-note">Waiting to sync</div>}</div><div className="location-actions"><button onClick={() => onNavigate(location)} className="navigate-button"><Navigation size={18} /> Navigate</button><button onClick={() => onCopyAddress(location.address)} className="copy-button"><Copy size={18} /> {copied ? 'Copied!' : 'Copy'}</button>{!location.isPending && <button onClick={() => onShare(location)} className="share-button"><Share2 size={18} /> {linkCopied ? 'Copied!' : 'Share'}</button>}</div>{!location.isPending && (canEdit || canDelete) && (<div className="location-actions edit-actions">{canEdit && <button onClick={() => onEdit(location)} className="edit-button"><Edit2 size={18} /> Edit</button>}{canDelete && <button onClick={() => onDelete(location)} className="delete-button"><Trash2 size={18} /> Delete</button>}</div>)}</div>)}
+    <div className={'location-card ' + (isSelected ? 'selected ' : '') + (isDuplicate ? 'duplicate ' : '') + (location.isPending ? 'pending' : '')}><button onClick={onSelect} className="location-card-main"><div className="location-icon" style={{ background: typeConfig.color + '20' }}><MapPin size={24} color={typeConfig.color} /></div><div className="location-info"><div className="location-name"><span>{location.name}</span>{location.requiresLadder && <span className="ladder-icon">🪜</span>}{location.isPending && <span className="pending-badge">Pending</span>}</div><p className="location-address">{location.address}</p><div className="location-badges"><span className="type-badge" style={{ background: typeConfig.color + '20', color: typeConfig.color }}>{typeConfig.label}</span>{location.hasLadderBracket && <span className="bracket-badge">Has Bracket</span>}{location.hasBathroom && <span className="bathroom-badge">🚻 Bathroom</span>}</div>{location.notes && !isSelected && <p className="location-notes-preview">{location.notes.length > 50 ? location.notes.substring(0, 50) + '...' : location.notes}</p>}</div>{distance && <div className="location-distance">{distance}</div>}</button>
+      {isSelected && (<div className="location-details">{location.notes && <p className="location-notes">{location.notes}</p>}<div className="location-meta"><div className="location-coords">{location.latitude?.toFixed(6)}, {location.longitude?.toFixed(6)}</div>{canViewMeta && !location.isPending && <div className="location-added-by">Added by: {location.createdBy || 'Unknown'}{location.createdAt && <span> on {(location.createdAt.toDate ? location.createdAt.toDate() : new Date(location.createdAt)).toLocaleDateString()}</span>}</div>}{canViewMeta && location.lastModifiedBy && <div className="location-modified-by">Edited by: {location.lastModifiedBy}{location.lastModified && <span> on {(location.lastModified.toDate ? location.lastModified.toDate() : new Date(location.lastModified)).toLocaleDateString()}</span>}</div>}{location.isPending && <div className="location-added-by pending-note">Waiting to sync</div>}</div><div className="location-actions"><button onClick={() => onNavigate(location)} className="navigate-button"><Navigation size={18} /> Navigate</button><button onClick={() => onShowOnMap(location)} className="map-button"><MapIcon size={18} /> Map</button><button onClick={() => onCopyAddress(location.address)} className="copy-button"><Copy size={18} /> {copied ? 'Copied!' : 'Copy'}</button>{!location.isPending && <button onClick={() => onShare(location)} className="share-button"><Share2 size={18} /> {linkCopied ? 'Copied!' : 'Share'}</button>}</div>{!location.isPending && (canEdit || canDelete) && (<div className="location-actions edit-actions">{canEdit && <button onClick={() => onEdit(location)} className="edit-button"><Edit2 size={18} /> Edit</button>}{canDelete && <button onClick={() => onDelete(location)} className="delete-button"><Trash2 size={18} /> Delete</button>}</div>)}</div>)}
     </div>
   );
 }
 
 function AddLocationModal({ userOrg, userEmail, onClose, existingLocations, isOnline }) {
-  const [name, setName] = useState(''); const [address, setAddress] = useState(''); const [locationType, setLocationType] = useState(''); const [notes, setNotes] = useState(''); const [requiresLadder, setRequiresLadder] = useState(false); const [hasLadderBracket, setHasLadderBracket] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [warning, setWarning] = useState(''); const [isBlocked, setIsBlocked] = useState(false); const [coords, setCoords] = useState({ lat: '', lng: '' }); const [useCurrentLocation, setUseCurrentLocation] = useState(false); const [showManualCoords, setShowManualCoords] = useState(false); const [manualCoordsInput, setManualCoordsInput] = useState('');
+  const [name, setName] = useState(''); const [address, setAddress] = useState(''); const [locationType, setLocationType] = useState(''); const [notes, setNotes] = useState(''); const [requiresLadder, setRequiresLadder] = useState(false); const [hasLadderBracket, setHasLadderBracket] = useState(false); const [hasBathroom, setHasBathroom] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [warning, setWarning] = useState(''); const [isBlocked, setIsBlocked] = useState(false); const [coords, setCoords] = useState({ lat: '', lng: '' }); const [useCurrentLocation, setUseCurrentLocation] = useState(false); const [showManualCoords, setShowManualCoords] = useState(false); const [manualCoordsInput, setManualCoordsInput] = useState('');
   const checkDupes = (n, a, lat, lng, t) => { if (!existingLocations?.length || !t) return; const norm = s => s?.toLowerCase().replace(/\s+/g, ' ').trim() || ''; const nameMatch = existingLocations.find(l => norm(l.name) === norm(n) && norm(n) && normalizeType(l.locationType) === t); if (nameMatch) { setError('A ' + t + ' named "' + nameMatch.name + '" already exists!'); setIsBlocked(true); return; } setError(''); setIsBlocked(false); const addrMatch = existingLocations.find(l => norm(l.address) === norm(a) && norm(a) && normalizeType(l.locationType) === t); if (addrMatch) setWarning('A ' + t + ' at that address already exists'); else if (lat && lng && existingLocations.find(l => l.latitude && l.longitude && normalizeType(l.locationType) === t && calculateDistance(lat, lng, l.latitude, l.longitude) < 0.02)) setWarning('A location within 100ft exists'); else setWarning(''); };
   const getGPS = () => { if (!navigator.geolocation) { setError('GPS not supported on this device'); return; } setLoading(true); setError(''); navigator.geolocation.getCurrentPosition(async (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setUseCurrentLocation(true); try { const r = await fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + p.coords.latitude + '&lon=' + p.coords.longitude + '&zoom=18', { headers: { 'User-Agent': 'FidLoc/1.0' } }); const d = await r.json(); if (d.display_name) setAddress(d.display_name.split(', ').slice(0, 4).join(', ')); } catch { setAddress(p.coords.latitude.toFixed(5) + ', ' + p.coords.longitude.toFixed(5)); } setLoading(false); }, (err) => { if (err.code === 1) setError('Location permission denied. Go to Settings > Safari > Location and allow for this site.'); else if (err.code === 2) setError('GPS unavailable. Make sure Location Services is ON in Settings > Privacy > Location Services.'); else if (err.code === 3) setError('GPS timed out. Try again outside with clear sky.'); else setError('GPS failed: ' + err.message); setLoading(false); }, { enableHighAccuracy: true, timeout: 15000 }); };
   const parseCoords = () => { const m = manualCoordsInput.match(/(-?\d+\.?\d*)\s*[,\s]\s*(-?\d+\.?\d*)/); if (m && Math.abs(parseFloat(m[1])) <= 90 && Math.abs(parseFloat(m[2])) <= 180) { setCoords({ lat: parseFloat(m[1]), lng: parseFloat(m[2]) }); setUseCurrentLocation(true); setShowManualCoords(false); } else setError('Invalid coords'); };
   const geocode = async (a) => { try { const r = await fetch('https://maps.googleapis.com/maps/api/geocode/json?address=' + encodeURIComponent(a) + '&key=AIzaSyDt1X0uhHu-wUC0L51T-AS77ymlusiYh7I'); const d = await r.json(); return d.results?.[0] ? { lat: d.results[0].geometry.location.lat, lng: d.results[0].geometry.location.lng } : null; } catch { return null; } };
-  const submit = async (e) => { e.preventDefault(); if (isBlocked) return; setLoading(true); setError(''); var finalCoords = coords; if (!useCurrentLocation || !coords.lat) { if (!isOnline) { setError('Offline - use GPS'); setLoading(false); return; } finalCoords = await geocode(address); if (!finalCoords) { setError('Could not geocode'); setLoading(false); return; } } var data = { name, address, latitude: finalCoords.lat, longitude: finalCoords.lng, locationType, notes, requiresLadder: locationType === 'Hub' ? requiresLadder : false, hasLadderBracket: locationType === 'Hub' ? hasLadderBracket : false, createdBy: userEmail, userOrg }; try { if (isOnline) { await addDoc(collection(db, 'organizations', userOrg, 'locations'), Object.assign({}, data, { createdAt: Timestamp.now(), lastModified: Timestamp.now() })); await logActivity(userOrg, 'created', name, userEmail); } else await offlineQueue.addToQueue(data); onClose(); } catch { setError('Failed to save'); } setLoading(false); };
-  return (<div className="modal-overlay"><div className="modal"><div className="modal-header"><h2>Add Location</h2>{!isOnline && <span className="offline-indicator"><WifiOff size={16} /> Offline</span>}<button onClick={onClose} className="close-button"><X size={24} /></button></div><form onSubmit={submit} className="modal-form">{!isOnline && <div className="offline-notice">Offline - will sync later</div>}{error && <div className="error-message">{error}</div>}{warning && <div className="warning-message">{warning}</div>}<div className="form-group"><label>Name *</label><input value={name} onChange={e => { const upperName = e.target.value.toUpperCase(); setName(upperName); checkDupes(upperName, address, null, null, locationType); }} required /></div><div className="form-group"><label>Type *</label><select value={locationType} onChange={e => { setLocationType(e.target.value); checkDupes(name, address, coords.lat, coords.lng, e.target.value); }} required><option value="">-- Select --</option>{FILTER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div><div className="form-group"><label>Address *</label><input value={address} onChange={e => { setAddress(e.target.value); setUseCurrentLocation(false); checkDupes(name, e.target.value, null, null, locationType); }} required /><div className="location-buttons"><button type="button" onClick={getGPS} className="location-btn" disabled={loading}>📍 GPS</button><button type="button" onClick={() => setShowManualCoords(!showManualCoords)} className="location-btn">✏️ Coords</button></div>{showManualCoords && <div className="manual-coords"><input value={manualCoordsInput} onChange={e => setManualCoordsInput(e.target.value)} placeholder="42.98, -71.45" /><button type="button" onClick={parseCoords} className="parse-btn">Set</button></div>}{useCurrentLocation && coords.lat && <div className="coords-captured">✅ {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}</div>}</div>{locationType === 'Hub' && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={requiresLadder} onChange={e => setRequiresLadder(e.target.checked)} /> 🪜 Requires Ladder</label>{requiresLadder && <label className="checkbox-label"><input type="checkbox" checked={hasLadderBracket} onChange={e => setHasLadderBracket(e.target.checked)} /> Has Bracket</label>}</div>}<div className="form-group"><label>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} /></div><div className="modal-actions"><button type="button" onClick={onClose} className="cancel-button">Cancel</button><button type="submit" disabled={loading || isBlocked} className="submit-button">{loading ? 'Saving...' : 'Add'}</button></div></form></div></div>);
+  const submit = async (e) => { e.preventDefault(); if (isBlocked) return; setLoading(true); setError(''); var finalCoords = coords; if (!useCurrentLocation || !coords.lat) { if (!isOnline) { setError('Offline - use GPS'); setLoading(false); return; } finalCoords = await geocode(address); if (!finalCoords) { setError('Could not geocode'); setLoading(false); return; } } var data = { name, address, latitude: finalCoords.lat, longitude: finalCoords.lng, locationType, notes, requiresLadder: locationType === 'Hub' ? requiresLadder : false, hasLadderBracket: locationType === 'Hub' ? hasLadderBracket : false, hasBathroom: (locationType === 'CO' || locationType === 'Garage') ? hasBathroom : false, createdBy: userEmail, userOrg }; try { if (isOnline) { await addDoc(collection(db, 'organizations', userOrg, 'locations'), Object.assign({}, data, { createdAt: Timestamp.now(), lastModified: Timestamp.now() })); await logActivity(userOrg, 'created', name, userEmail); } else await offlineQueue.addToQueue(data); onClose(); } catch { setError('Failed to save'); } setLoading(false); };
+  return (<div className="modal-overlay"><div className="modal"><div className="modal-header"><h2>Add Location</h2>{!isOnline && <span className="offline-indicator"><WifiOff size={16} /> Offline</span>}<button onClick={onClose} className="close-button"><X size={24} /></button></div><form onSubmit={submit} className="modal-form">{!isOnline && <div className="offline-notice">Offline - will sync later</div>}{error && <div className="error-message">{error}</div>}{warning && <div className="warning-message">{warning}</div>}<div className="form-group"><label>Name *</label><input value={name} onChange={e => { const upperName = e.target.value.toUpperCase(); setName(upperName); checkDupes(upperName, address, null, null, locationType); }} required /></div><div className="form-group"><label>Type *</label><select value={locationType} onChange={e => { setLocationType(e.target.value); checkDupes(name, address, coords.lat, coords.lng, e.target.value); }} required><option value="">-- Select --</option>{FILTER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div><div className="form-group"><label>Address *</label><input value={address} onChange={e => { setAddress(e.target.value); setUseCurrentLocation(false); checkDupes(name, e.target.value, null, null, locationType); }} required /><div className="location-buttons"><button type="button" onClick={getGPS} className="location-btn" disabled={loading}>📍 GPS</button><button type="button" onClick={() => setShowManualCoords(!showManualCoords)} className="location-btn">✏️ Coords</button></div>{showManualCoords && <div className="manual-coords"><input value={manualCoordsInput} onChange={e => setManualCoordsInput(e.target.value)} placeholder="42.98, -71.45" /><button type="button" onClick={parseCoords} className="parse-btn">Set</button></div>}{useCurrentLocation && coords.lat && <div className="coords-captured">✅ {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}</div>}</div>{locationType === 'Hub' && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={requiresLadder} onChange={e => setRequiresLadder(e.target.checked)} /> 🪜 Requires Ladder</label>{requiresLadder && <label className="checkbox-label"><input type="checkbox" checked={hasLadderBracket} onChange={e => setHasLadderBracket(e.target.checked)} /> Has Bracket</label>}</div>}{(locationType === 'CO' || locationType === 'Garage') && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={hasBathroom} onChange={e => setHasBathroom(e.target.checked)} /> 🚻 Has Bathroom</label></div>}<div className="form-group"><label>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} /></div><div className="modal-actions"><button type="button" onClick={onClose} className="cancel-button">Cancel</button><button type="submit" disabled={loading || isBlocked} className="submit-button">{loading ? 'Saving...' : 'Add'}</button></div></form></div></div>);
 }
 
 function EditLocationModal({ location, userOrg, userEmail, onClose, isOnline }) {
-  const [name, setName] = useState((location.name || '').toUpperCase()); const [address, setAddress] = useState(location.address || ''); const [locationType, setLocationType] = useState(location.locationType || 'Hub'); const [notes, setNotes] = useState(location.notes || ''); const [requiresLadder, setRequiresLadder] = useState(location.requiresLadder || false); const [hasLadderBracket, setHasLadderBracket] = useState(location.hasLadderBracket || false); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
-  const submit = async (e) => { e.preventDefault(); if (!isOnline) { setError('Must be online to edit'); return; } setLoading(true); setError(''); var changes = []; if (name !== location.name) changes.push({ field: 'name', before: location.name, after: name }); if (address !== location.address) changes.push({ field: 'address', before: location.address, after: address }); if (locationType !== location.locationType) changes.push({ field: 'type', before: location.locationType, after: locationType }); if (notes !== (location.notes || '')) changes.push({ field: 'notes', before: location.notes || '(empty)', after: notes || '(empty)' }); if (requiresLadder !== location.requiresLadder) changes.push({ field: 'requiresLadder', before: location.requiresLadder ? 'Yes' : 'No', after: requiresLadder ? 'Yes' : 'No' }); if (hasLadderBracket !== location.hasLadderBracket) changes.push({ field: 'hasLadderBracket', before: location.hasLadderBracket ? 'Yes' : 'No', after: hasLadderBracket ? 'Yes' : 'No' }); if (!changes.length) { onClose(); return; } try { await updateDoc(doc(db, 'organizations', userOrg, 'locations', location.id), { name, address, locationType, notes, requiresLadder: locationType === 'Hub' ? requiresLadder : false, hasLadderBracket: locationType === 'Hub' ? hasLadderBracket : false, lastModified: Timestamp.now(), lastModifiedBy: userEmail }); await logActivity(userOrg, 'edited', name, userEmail, changes); onClose(); } catch { setError('Failed to save'); } setLoading(false); };
-  return (<div className="modal-overlay"><div className="modal"><div className="modal-header"><h2>Edit Location</h2><button onClick={onClose} className="close-button"><X size={24} /></button></div><form onSubmit={submit} className="modal-form">{error && <div className="error-message">{error}</div>}{!isOnline && <div className="error-message">Must be online to edit</div>}<div className="form-group"><label>Name *</label><input value={name} onChange={e => setName(e.target.value.toUpperCase())} required /></div><div className="form-group"><label>Type *</label><select value={locationType} onChange={e => setLocationType(e.target.value)} required>{FILTER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div><div className="form-group"><label>Address *</label><input value={address} onChange={e => setAddress(e.target.value)} required /></div>{locationType === 'Hub' && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={requiresLadder} onChange={e => setRequiresLadder(e.target.checked)} /> 🪜 Requires Ladder</label>{requiresLadder && <label className="checkbox-label"><input type="checkbox" checked={hasLadderBracket} onChange={e => setHasLadderBracket(e.target.checked)} /> Has Bracket</label>}</div>}<div className="form-group"><label>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} /></div><div className="modal-actions"><button type="button" onClick={onClose} className="cancel-button">Cancel</button><button type="submit" disabled={loading || !isOnline} className="submit-button">{loading ? 'Saving...' : 'Save Changes'}</button></div></form></div></div>);
+  const [name, setName] = useState((location.name || '').toUpperCase()); const [address, setAddress] = useState(location.address || ''); const [locationType, setLocationType] = useState(location.locationType || 'Hub'); const [notes, setNotes] = useState(location.notes || ''); const [requiresLadder, setRequiresLadder] = useState(location.requiresLadder || false); const [hasLadderBracket, setHasLadderBracket] = useState(location.hasLadderBracket || false); const [hasBathroom, setHasBathroom] = useState(location.hasBathroom || false); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+  const submit = async (e) => { e.preventDefault(); if (!isOnline) { setError('Must be online to edit'); return; } setLoading(true); setError(''); var changes = []; if (name !== location.name) changes.push({ field: 'name', before: location.name, after: name }); if (address !== location.address) changes.push({ field: 'address', before: location.address, after: address }); if (locationType !== location.locationType) changes.push({ field: 'type', before: location.locationType, after: locationType }); if (notes !== (location.notes || '')) changes.push({ field: 'notes', before: location.notes || '(empty)', after: notes || '(empty)' }); if (requiresLadder !== location.requiresLadder) changes.push({ field: 'requiresLadder', before: location.requiresLadder ? 'Yes' : 'No', after: requiresLadder ? 'Yes' : 'No' }); if (hasLadderBracket !== location.hasLadderBracket) changes.push({ field: 'hasLadderBracket', before: location.hasLadderBracket ? 'Yes' : 'No', after: hasLadderBracket ? 'Yes' : 'No' }); if (hasBathroom !== location.hasBathroom) changes.push({ field: 'hasBathroom', before: location.hasBathroom ? 'Yes' : 'No', after: hasBathroom ? 'Yes' : 'No' }); if (!changes.length) { onClose(); return; } try { await updateDoc(doc(db, 'organizations', userOrg, 'locations', location.id), { name, address, locationType, notes, requiresLadder: locationType === 'Hub' ? requiresLadder : false, hasLadderBracket: locationType === 'Hub' ? hasLadderBracket : false, hasBathroom: (locationType === 'CO' || locationType === 'Garage') ? hasBathroom : false, lastModified: Timestamp.now(), lastModifiedBy: userEmail }); await logActivity(userOrg, 'edited', name, userEmail, changes); onClose(); } catch { setError('Failed to save'); } setLoading(false); };
+  return (<div className="modal-overlay"><div className="modal"><div className="modal-header"><h2>Edit Location</h2><button onClick={onClose} className="close-button"><X size={24} /></button></div><form onSubmit={submit} className="modal-form">{error && <div className="error-message">{error}</div>}{!isOnline && <div className="error-message">Must be online to edit</div>}<div className="form-group"><label>Name *</label><input value={name} onChange={e => setName(e.target.value.toUpperCase())} required /></div><div className="form-group"><label>Type *</label><select value={locationType} onChange={e => setLocationType(e.target.value)} required>{FILTER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div><div className="form-group"><label>Address *</label><input value={address} onChange={e => setAddress(e.target.value)} required /></div>{locationType === 'Hub' && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={requiresLadder} onChange={e => setRequiresLadder(e.target.checked)} /> 🪜 Requires Ladder</label>{requiresLadder && <label className="checkbox-label"><input type="checkbox" checked={hasLadderBracket} onChange={e => setHasLadderBracket(e.target.checked)} /> Has Bracket</label>}</div>}{(locationType === 'CO' || locationType === 'Garage') && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={hasBathroom} onChange={e => setHasBathroom(e.target.checked)} /> 🚻 Has Bathroom</label></div>}<div className="form-group"><label>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} /></div><div className="modal-actions"><button type="button" onClick={onClose} className="cancel-button">Cancel</button><button type="submit" disabled={loading || !isOnline} className="submit-button">{loading ? 'Saving...' : 'Save Changes'}</button></div></form></div></div>);
 }
 
 function ActivityLogModal({ userOrg, userRole, onClose }) {
@@ -413,10 +421,14 @@ function InventoryModal({ userId, onClose }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [scannedItems, setScannedItems] = useState([]);
   const [bufferItems, setBufferItems] = useState([]);
+  const [copiedSerials, setCopiedSerials] = useState(new Set());
+  const [quickLookup, setQuickLookup] = useState('');
+  const [quickMatches, setQuickMatches] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [manualSerial, setManualSerial] = useState('');
   const [lastScanned, setLastScanned] = useState(null);
   const [aiProcessing, setAiProcessing] = useState(false);
+  const [lastCopied, setLastCopied] = useState(null);
   const scannerRef = useRef(null);
   const html5QrCodeRef = useRef(null);
   const lastScannedCodeRef = useRef(null);
@@ -446,6 +458,32 @@ function InventoryModal({ userId, onClose }) {
     }
   }, [scannedItems, bufferItems, userId]);
 
+  // Quick lookup by last 4 digits
+  const handleQuickLookup = (value) => {
+    const search = value.toUpperCase();
+    setQuickLookup(search);
+    if (search.length >= 3) {
+      const matches = bufferItems.filter(item => 
+        item.serial.endsWith(search) || item.serial.includes(search)
+      ).filter(item => !scannedItems.find(s => s.serial === item.serial));
+      setQuickMatches(matches);
+    } else {
+      setQuickMatches([]);
+    }
+  };
+
+  const addFromQuickMatch = (serial) => {
+    if (scannedItems.find(i => i.serial === serial)) {
+      alert('Already on truck!');
+      return;
+    }
+    playBeep(true);
+    setScannedItems(prev => [...prev, { serial, scannedAt: new Date().toISOString() }]);
+    setQuickLookup('');
+    setQuickMatches([]);
+    setLastScanned({ serial, status: 'added' });
+  };
+
   const addManualItem = () => {
     if (!manualSerial.trim()) return;
     const serial = manualSerial.trim().toUpperCase();
@@ -457,12 +495,41 @@ function InventoryModal({ userId, onClose }) {
     setManualSerial('');
   };
 
-  const addScannedSerial = (serial) => {
+  // Beep sound generator
+  const playBeep = (success = true) => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      if (success) {
+        oscillator.frequency.value = 1200;
+        oscillator.type = 'sine';
+        gainNode.gain.value = 0.3;
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.15);
+      } else {
+        oscillator.frequency.value = 300;
+        oscillator.type = 'square';
+        gainNode.gain.value = 0.2;
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.3);
+      }
+    } catch (e) { console.log('Audio not supported'); }
+  };
+
+  const scannedItemsRef = useRef(scannedItems);
+  useEffect(() => { scannedItemsRef.current = scannedItems; }, [scannedItems]);
+
+  const addScannedSerial = (serial, isFromScanner = false) => {
     const cleanSerial = serial.trim().toUpperCase();
-    if (scannedItems.find(i => i.serial === cleanSerial)) {
+    if (scannedItemsRef.current.find(i => i.serial === cleanSerial)) {
+      if (isFromScanner) playBeep(false);
       setLastScanned({ serial: cleanSerial, status: 'duplicate' });
       return;
     }
+    playBeep(true);
     setScannedItems(prev => [...prev, { serial: cleanSerial, scannedAt: new Date().toISOString() }]);
     setLastScanned({ serial: cleanSerial, status: 'added' });
   };
@@ -487,15 +554,15 @@ function InventoryModal({ userId, onClose }) {
           }
           const cleanSerial = serial.trim().toUpperCase();
           
-          // Prevent duplicate scans - must be different code OR 3 seconds cooldown
+          // Prevent rapid re-scans of same barcode - 5 second cooldown
           const now = Date.now();
-          if (cleanSerial === lastScannedCodeRef.current && now - lastScanTimeRef.current < 3000) {
-            return; // Same code scanned within 3 seconds, ignore
+          if (cleanSerial === lastScannedCodeRef.current && now - lastScanTimeRef.current < 5000) {
+            return; // Same code scanned within 5 seconds, ignore completely
           }
           
           lastScannedCodeRef.current = cleanSerial;
           lastScanTimeRef.current = now;
-          addScannedSerial(cleanSerial);
+          addScannedSerial(cleanSerial, true);
         },
         () => {} // ignore errors during scanning
       );
@@ -543,8 +610,19 @@ function InventoryModal({ userId, onClose }) {
       const fileType = file.type;
       const fileName = file.name.toLowerCase();
       
-      // Handle CSV/Excel as text
-      if (fileName.endsWith('.csv') || fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+      // Handle Excel files with XLSX library
+      if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_csv(firstSheet);
+        content = [{
+          type: 'text',
+          text: `This is a buffer sheet in spreadsheet format. Extract serial numbers ONLY from the FIRST column (Serial No column). Ignore all other columns. Serial numbers for ONTs start with "ADTN" followed by alphanumeric characters. Serial numbers for routers start with "8612", "854", or "841" followed by alphanumeric characters. Return ONLY the serial numbers, one per line, nothing else.\n\nData:\n${data}`
+        }];
+      }
+      // Handle CSV as text
+      else if (fileName.endsWith('.csv')) {
         const text = await file.text();
         content = [{
           type: 'text',
@@ -699,6 +777,11 @@ function InventoryModal({ userId, onClose }) {
           <button onClick={() => setActiveTab('scan')} className={`inv-tab ${activeTab === 'scan' ? 'active' : ''}`}>Scan Truck</button>
           <button onClick={() => setActiveTab('buffer')} className={`inv-tab ${activeTab === 'buffer' ? 'active' : ''}`}>Buffer Sheet</button>
           <button onClick={() => setActiveTab('compare')} className={`inv-tab ${activeTab === 'compare' ? 'active' : ''}`}>Compare</button>
+          {comparison.missing.length > 0 && (
+            <button onClick={() => setActiveTab('submit')} className={`inv-tab submit-tab ${activeTab === 'submit' ? 'active' : ''}`}>
+              Submit ({comparison.missing.length})
+            </button>
+          )}
         </div>
 
         <div className="inventory-content">
@@ -736,7 +819,44 @@ function InventoryModal({ userId, onClose }) {
 
           {activeTab === 'scan' && (
             <div className="inv-scan">
+              {bufferItems.length > 0 && (
+                <div className="quick-lookup-section">
+                  <h3>⚡ Quick Add (Last 3-4 digits)</h3>
+                  <p className="scan-hint">Type the last few digits to find from warehouse list</p>
+                  <div className="quick-lookup-input">
+                    <input 
+                      type="text" 
+                      value={quickLookup} 
+                      onChange={e => handleQuickLookup(e.target.value)}
+                      placeholder="e.g. 8617"
+                      maxLength={6}
+                    />
+                    {quickLookup && <button onClick={() => { setQuickLookup(''); setQuickMatches([]); }} className="clear-input-btn"><X size={18} /></button>}
+                  </div>
+                  {quickLookup.length >= 3 && (
+                    <div className="quick-matches">
+                      {quickMatches.length > 0 ? (
+                        quickMatches.map((item, idx) => (
+                          <button key={idx} onClick={() => addFromQuickMatch(item.serial)} className="quick-match-btn">
+                            <span className="match-serial">{item.serial.slice(0, -quickLookup.length)}<strong>{item.serial.slice(-quickLookup.length)}</strong></span>
+                            <span className="match-add">+ Add</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="no-match">
+                          <p>No match in warehouse list</p>
+                          <button onClick={() => { setManualSerial(quickLookup); setQuickLookup(''); setQuickMatches([]); }} className="scan-instead-btn">
+                            <ScanLine size={16} /> Scan full barcode to add as Extra
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="scanner-section">
+                <h3>📷 Barcode Scanner</h3>
                 <div id="barcode-reader" ref={scannerRef}></div>
                 {!scanning ? (
                   <button onClick={startScanner} className="start-scanner-btn">
@@ -756,8 +876,8 @@ function InventoryModal({ userId, onClose }) {
               </div>
 
               <div className="scan-input-section">
-                <h3>Manual Entry</h3>
-                <p className="scan-hint">Or type/paste serial number</p>
+                <h3>✏️ Manual Entry</h3>
+                <p className="scan-hint">Type or paste full serial number</p>
                 <div className="manual-input">
                   <input 
                     type="text" 
@@ -872,51 +992,108 @@ function InventoryModal({ userId, onClose }) {
                 </div>
               ) : (
                 <>
-                  <div className="compare-section matched-section">
-                    <h3><CheckCircle size={18} color="#22c55e" /> Matched ({comparison.matched.length})</h3>
-                    {comparison.matched.length === 0 ? (
-                      <p className="empty-list">No matched items</p>
-                    ) : (
-                      <div className="compare-items">
-                        {comparison.matched.map((item, idx) => (
-                          <div key={idx} className="compare-item matched">{item.serial}</div>
-                        ))}
-                      </div>
-                    )}
+                  <div className="compare-summary">
+                    <div className="summary-stat truck"><span className="stat-num">{scannedItems.length}</span><span className="stat-label">On Truck</span></div>
+                    <div className="summary-stat buffer"><span className="stat-num">{bufferItems.length}</span><span className="stat-label">Warehouse Says</span></div>
+                    <div className="summary-stat matched"><span className="stat-num">{comparison.matched.length}</span><span className="stat-label">✓ Matched</span></div>
+                    <div className="summary-stat missing"><span className="stat-num">{comparison.missing.length}</span><span className="stat-label">Missing</span></div>
+                    <div className="summary-stat extra"><span className="stat-num">{comparison.extra.length}</span><span className="stat-label">Extra</span></div>
                   </div>
 
-                  <div className="compare-section missing-section">
-                    <h3><XCircle size={18} color="#ef4444" /> Missing from Truck ({comparison.missing.length})</h3>
-                    <p className="section-hint">On buffer but not scanned</p>
-                    {comparison.missing.length === 0 ? (
-                      <p className="empty-list">Nothing missing!</p>
-                    ) : (
-                      <div className="compare-items">
+                  {comparison.missing.length > 0 && (
+                    <div className="compare-section missing-section">
+                      <div className="section-header">
+                        <h3>🔴 Missing ({comparison.missing.length})</h3>
+                        <span className="copied-count">{copiedSerials.size} of {comparison.missing.length} copied</span>
+                      </div>
+                      <p className="section-hint">Tap to copy → paste into website</p>
+                      <div className="missing-items">
                         {comparison.missing.map((item, idx) => (
-                          <div key={idx} className="compare-item missing">
-                            <span>{item.serial}</span>
-                            <button onClick={() => openReportForm(item)} className="report-btn">Report</button>
-                          </div>
+                          <button 
+                            key={idx} 
+                            className={`missing-item ${copiedSerials.has(item.serial) ? 'copied' : ''} ${lastCopied === item.serial ? 'just-copied' : ''}`}
+                            onClick={() => {
+                              navigator.clipboard.writeText(item.serial);
+                              setCopiedSerials(prev => new Set([...prev, item.serial]));
+                              setLastCopied(item.serial);
+                              setTimeout(() => setLastCopied(null), 1500);
+                            }}
+                          >
+                            <span className="missing-serial">{item.serial}</span>
+                            <span className="copy-status">{copiedSerials.has(item.serial) ? '✓' : '📋'}</span>
+                          </button>
                         ))}
                       </div>
-                    )}
-                  </div>
+                      {copiedSerials.size > 0 && copiedSerials.size < comparison.missing.length && (
+                        <div className="progress-bar">
+                          <div className="progress-fill" style={{ width: `${(copiedSerials.size / comparison.missing.length) * 100}%` }}></div>
+                        </div>
+                      )}
+                      {copiedSerials.size === comparison.missing.length && comparison.missing.length > 0 && (
+                        <div className="all-done">🎉 All missing items copied!</div>
+                      )}
+                      <button onClick={() => setCopiedSerials(new Set())} className="reset-copied-btn">Reset Copied Status</button>
+                    </div>
+                  )}
 
-                  <div className="compare-section extra-section">
-                    <h3><AlertTriangle size={18} color="#f97316" /> Extra on Truck ({comparison.extra.length})</h3>
-                    <p className="section-hint">Scanned but not on buffer</p>
-                    {comparison.extra.length === 0 ? (
-                      <p className="empty-list">No extra items</p>
-                    ) : (
+                  {comparison.extra.length > 0 && (
+                    <div className="compare-section extra-section">
+                      <h3>🟡 Extra on Truck ({comparison.extra.length})</h3>
+                      <p className="section-hint">On your truck but not on warehouse list</p>
                       <div className="compare-items">
                         {comparison.extra.map((item, idx) => (
                           <div key={idx} className="compare-item extra">{item.serial}</div>
                         ))}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
+
+                  {comparison.matched.length > 0 && (
+                    <div className="compare-section matched-section">
+                      <h3>🟢 Matched ({comparison.matched.length})</h3>
+                      <div className="compare-items collapsed">
+                        {comparison.matched.map((item, idx) => (
+                          <div key={idx} className="compare-item matched">{item.serial}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
+            </div>
+          )}
+
+          {activeTab === 'submit' && (
+            <div className="inv-submit">
+              <div className="submit-serial-bar">
+                <div className="serial-scroll">
+                  {comparison.missing.map((item, idx) => (
+                    <button 
+                      key={idx}
+                      className={`serial-chip ${copiedSerials.has(item.serial) ? 'done' : ''} ${lastCopied === item.serial ? 'just-copied' : ''}`}
+                      onClick={() => {
+                        navigator.clipboard.writeText(item.serial);
+                        setCopiedSerials(prev => new Set([...prev, item.serial]));
+                        setLastCopied(item.serial);
+                        playBeep(true);
+                        setTimeout(() => setLastCopied(null), 1500);
+                      }}
+                    >
+                      {copiedSerials.has(item.serial) ? '✓' : ''} {item.serial.slice(-6)}
+                    </button>
+                  ))}
+                </div>
+                <div className="serial-progress">{copiedSerials.size}/{comparison.missing.length}</div>
+              </div>
+              <div className="form-embed-container">
+                <iframe 
+                  src="https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u&embed=true"
+                  title="Inventory Correction Form"
+                  className="embedded-form"
+                  frameBorder="0"
+                  allowFullScreen
+                />
+              </div>
             </div>
           )}
         </div>

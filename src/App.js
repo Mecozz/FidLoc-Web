@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Invites from './pages/Invites';
+import FormFill from './pages/FormFill';
 import './App.css';
 
 function PrivateRoute({ children }) {
@@ -69,6 +70,7 @@ function PublicRoute({ children }) {
 function AppRoutes() {
   return (
     <Routes>
+      <Route path="/form-fill" element={<FormFill />} />
       <Route path="/login" element={
         <PublicRoute>
           <Login />
@@ -79,6 +81,7 @@ function AppRoutes() {
           <Register />
         </PublicRoute>
       } />
+      <Route path="/form-fill" element={<FormFill />} />
       <Route path="/invites" element={
         <InviteRoute>
           <Invites />
