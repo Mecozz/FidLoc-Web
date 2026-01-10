@@ -488,8 +488,8 @@ function SummaryView({ entries, settings }) {
   };
 
   const thisWeek = calcPeriod(thisWeekStart, thisWeekEnd);
-  const thisMonth = calcPeriod(thisMonthStart, now);
-  const thisYear = calcPeriod(thisYearStart, now);
+  const thisMonth = calcPeriod(thisMonthStart, thisWeekEnd);
+  const thisYear = calcPeriod(thisYearStart, thisWeekEnd);
 
   return (
     <div className="summary-view">
