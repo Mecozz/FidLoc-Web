@@ -215,7 +215,7 @@ export default function TimeTracker({ userId, onClose }) {
               <button onClick={() => setShowSetup(true)} className="tt-tab settings-tab"><Settings size={16} /></button>
             </div>
             <div className="tt-content">
-              {activeTab === 'entry' && <EntryForm settings={settings} entries={entries} onAdd={addEntry} />}
+              {activeTab === 'entry' && <EntryForm settings={settings} entries={entries} onAdd={addEntry} onUpdate={updateEntry} />}
               {activeTab === 'history' && <HistoryView entries={entries} settings={settings} onDelete={deleteEntry} onEdit={setEditingEntry} />}
               {activeTab === 'summary' && <SummaryView entries={entries} settings={settings} />}
             </div>
@@ -418,7 +418,7 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
   );
 }
 
-function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
+function EntryForm({ settings, entries, onAdd, onUpdate }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [hoursWorked, setHoursWorked] = useState('');
   const [isHoliday, setIsHoliday] = useState(false);
@@ -508,6 +508,15 @@ function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
     // Sort by date
     parsed.sort((a, b) => a.date.localeCompare(b.date));
     
+    // For existing entries, also store the current hours for comparison
+    parsed.forEach(p => {
+      if (p.exists) {
+        const existing = entries.find(e => e.date === p.date);
+        p.existingHours = existing?.hoursWorked;
+        p.isDifferent = existing?.hoursWorked !== p.hours;
+      }
+    });
+    
     return parsed;
   };
 
@@ -516,13 +525,16 @@ function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
     setParsedEntries(parseImportText(text));
   };
 
-  const handleImport = () => {
+  const handleImport = (includeUpdates = false) => {
     const toAdd = parsedEntries.filter(p => !p.exists);
-    if (toAdd.length === 0) {
-      alert('No new entries to import (all dates already exist)');
+    const toUpdate = includeUpdates ? parsedEntries.filter(p => p.exists && p.isDifferent) : [];
+    
+    if (toAdd.length === 0 && toUpdate.length === 0) {
+      alert('No entries to import or update');
       return;
     }
     
+    // Add new entries
     toAdd.forEach(p => {
       onAdd({
         date: p.date,
@@ -534,10 +546,28 @@ function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
       });
     });
     
+    // Update existing entries
+    if (toUpdate.length > 0 && onUpdate) {
+      toUpdate.forEach(p => {
+        const existing = entries.find(e => e.date === p.date);
+        if (existing) {
+          onUpdate(existing.id, {
+            ...existing,
+            hoursWorked: p.hours,
+            notes: existing.notes ? existing.notes + ' (updated from HR)' : 'Updated from HR'
+          });
+        }
+      });
+    }
+    
     setImportText('');
     setParsedEntries([]);
     setShowImport(false);
-    alert(`Imported ${toAdd.length} entries!`);
+    
+    const msg = [];
+    if (toAdd.length > 0) msg.push(`${toAdd.length} new`);
+    if (toUpdate.length > 0) msg.push(`${toUpdate.length} updated`);
+    alert(`Imported: ${msg.join(', ')} entries!`);
   };
 
   const handleSubmit = (e) => {
@@ -668,15 +698,36 @@ function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
               <div className="import-preview">
                 <div className="import-preview-title">Found {parsedEntries.length} entries:</div>
                 {parsedEntries.map((p, i) => (
-                  <div key={i} className={`import-preview-row ${p.exists ? 'exists' : 'new'}`}>
+                  <div key={i} className={`import-preview-row ${p.exists ? (p.isDifferent ? 'different' : 'exists') : 'new'}`}>
                     <span>{new Date(p.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                    <span>{p.hours}h</span>
-                    <span className="import-status">{p.exists ? '⚠️ exists' : '✓ new'}</span>
+                    <span>
+                      {p.exists && p.isDifferent ? (
+                        <>{p.existingHours}h → <strong>{p.hours}h</strong></>
+                      ) : (
+                        <>{p.hours}h</>
+                      )}
+                    </span>
+                    <span className="import-status">
+                      {p.exists ? (p.isDifferent ? '🔄 update' : '✓ same') : '✓ new'}
+                    </span>
                   </div>
                 ))}
-                <button type="button" onClick={handleImport} className="import-btn" disabled={parsedEntries.every(p => p.exists)}>
-                  Import {parsedEntries.filter(p => !p.exists).length} New Entries
-                </button>
+                
+                {parsedEntries.some(p => !p.exists) && (
+                  <button type="button" onClick={() => handleImport(false)} className="import-btn">
+                    Import {parsedEntries.filter(p => !p.exists).length} New Entries
+                  </button>
+                )}
+                
+                {parsedEntries.some(p => p.exists && p.isDifferent) && (
+                  <button type="button" onClick={() => handleImport(true)} className="import-btn update">
+                    Import New + Update {parsedEntries.filter(p => p.exists && p.isDifferent).length} Changed
+                  </button>
+                )}
+                
+                {parsedEntries.every(p => p.exists && !p.isDifferent) && (
+                  <div className="import-complete">✓ All entries already match!</div>
+                )}
               </div>
             )}
           </div>

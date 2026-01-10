@@ -436,7 +436,9 @@
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 .import-preview-row.new { color: #22c55e; }
-.import-preview-row.exists { color: #888; text-decoration: line-through; }
+.import-preview-row.exists { color: #888; }
+.import-preview-row.different { color: #fbbf24; }
+.import-preview-row.different strong { color: #22c55e; }
 .import-status { font-size: 11px; }
 .import-btn {
   width: 100%;
@@ -449,10 +451,20 @@
   font-weight: 600;
   cursor: pointer;
 }
+.import-btn.update {
+  background: #f59e0b;
+  margin-top: 8px;
+}
 .import-btn:disabled {
   background: #333;
   color: #666;
   cursor: not-allowed;
+}
+.import-complete {
+  text-align: center;
+  padding: 12px;
+  color: #22c55e;
+  font-weight: 500;
 }
 
 /* History View */
