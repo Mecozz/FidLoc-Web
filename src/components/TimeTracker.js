@@ -448,15 +448,11 @@ function EntryForm({ settings, entries, onAdd, onUpdate }) {
     
     try {
       const Tesseract = await import('tesseract.js');
-      const result = await Tesseract.recognize(file, 'eng', {
-        logger: m => console.log(m)
-      });
+      const result = await Tesseract.recognize(file, 'eng');
       
       const text = result.data.text;
-      console.log('OCR Result:', text); // Debug
       setImportText(text);
       const parsed = parseImportText(text);
-      console.log('Parsed entries:', parsed); // Debug
       setParsedEntries(parsed);
       
       if (parsed.length === 0) {
