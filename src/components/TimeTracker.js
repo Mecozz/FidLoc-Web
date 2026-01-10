@@ -190,7 +190,7 @@ function SetupScreen({ onSave, existingSettings, onCancel }) {
 
         <div className="setup-section">
           <h4>Overtime Rules</h4>
-          <p className="setup-hint">Hours are auto-calculated: Regular → OT → Double Time</p>
+          <p className="setup-hint">Work week: Sunday - Saturday. Hours auto-calculated per week.</p>
           <div className="form-row">
             <div className="form-group">
               <label>OT starts after</label>
