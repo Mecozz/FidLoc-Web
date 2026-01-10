@@ -585,16 +585,28 @@ function SummaryView({ entries, settings }) {
   const thisYearStart = new Date(now.getFullYear(), 0, 1);
 
   const calcPeriod = (startDate, endDate) => {
+    // Get entries that fall within the period
     const periodEntries = entries.filter(e => {
       const d = new Date(e.date + 'T12:00:00');
       return d >= startDate && d <= endDate;
     });
     
-    const byWeek = {};
+    // Find which weeks have entries in this period
+    const weeksInPeriod = new Set();
     periodEntries.forEach(e => {
       const ws = getWeekStart(new Date(e.date + 'T12:00:00')).toISOString();
-      if (!byWeek[ws]) byWeek[ws] = [];
-      byWeek[ws].push(e);
+      weeksInPeriod.add(ws);
+    });
+    
+    // For each week that touches the period, get ALL entries from that complete week
+    // This ensures OT/DT is calculated correctly across the full week
+    const byWeek = {};
+    entries.forEach(e => {
+      const ws = getWeekStart(new Date(e.date + 'T12:00:00')).toISOString();
+      if (weeksInPeriod.has(ws)) {
+        if (!byWeek[ws]) byWeek[ws] = [];
+        byWeek[ws].push(e);
+      }
     });
     
     let totalPay = 0, totalHours = 0, otHours = 0, dtHours = 0, holidayHours = 0;
