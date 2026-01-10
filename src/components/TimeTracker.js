@@ -418,11 +418,14 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
   );
 }
 
-function EntryForm({ settings, entries, onAdd }) {
+function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [hoursWorked, setHoursWorked] = useState('');
   const [isHoliday, setIsHoliday] = useState(false);
   const [notes, setNotes] = useState('');
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [parsedEntries, setParsedEntries] = useState([]);
 
   if (!settings) return <div className="loading">Loading...</div>;
 
@@ -432,6 +435,67 @@ function EntryForm({ settings, entries, onAdd }) {
     return entryWeekStart.getTime() === weekStart.getTime();
   });
   const weekHoursSoFar = weekEntries.reduce((sum, e) => sum + (e.hoursWorked || 0), 0);
+
+  // Parse pasted HR text or manual input
+  const parseImportText = (text) => {
+    const lines = text.trim().split('\n');
+    const parsed = [];
+    
+    // Pattern: looks for dates like 01/04/2026 or 2026-01-04 followed by hours
+    const dateHoursPattern = /(\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}).*?(\d+\.?\d*)/g;
+    
+    for (const line of lines) {
+      let match;
+      while ((match = dateHoursPattern.exec(line)) !== null) {
+        let dateStr = match[1];
+        const hours = parseFloat(match[2]);
+        
+        // Convert MM/DD/YYYY to YYYY-MM-DD
+        if (dateStr.includes('/')) {
+          const [mm, dd, yyyy] = dateStr.split('/');
+          dateStr = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+        }
+        
+        // Check if we already have this date
+        const exists = entries.some(e => e.date === dateStr);
+        
+        if (hours > 0 && hours <= 24) {
+          parsed.push({ date: dateStr, hours, exists });
+        }
+      }
+    }
+    
+    return parsed;
+  };
+
+  const handleImportTextChange = (text) => {
+    setImportText(text);
+    setParsedEntries(parseImportText(text));
+  };
+
+  const handleImport = () => {
+    const toAdd = parsedEntries.filter(p => !p.exists);
+    if (toAdd.length === 0) {
+      alert('No new entries to import (all dates already exist)');
+      return;
+    }
+    
+    toAdd.forEach(p => {
+      onAdd({
+        date: p.date,
+        hoursWorked: p.hours,
+        shiftDiff: settings.shiftDiff || 'none',
+        isHoliday: false,
+        notes: 'Imported from HR',
+        baseRate: settings.baseRate
+      });
+    });
+    
+    setImportText('');
+    setParsedEntries([]);
+    setShowImport(false);
+    alert(`Imported ${toAdd.length} entries!`);
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -508,6 +572,41 @@ function EntryForm({ settings, entries, onAdd }) {
       )}
 
       <button type="submit" className="add-entry-btn"><Plus size={18} /> Add Entry</button>
+      
+      <div className="import-section">
+        <button type="button" onClick={() => setShowImport(!showImport)} className="import-toggle-btn">
+          {showImport ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          Import from HR
+        </button>
+        
+        {showImport && (
+          <div className="import-content">
+            <p className="import-hint">Paste your HR time entry data below. Format: dates with hours (e.g., "01/04/2026 11.000000")</p>
+            <textarea 
+              value={importText} 
+              onChange={e => handleImportTextChange(e.target.value)}
+              placeholder="Paste HR time data here...&#10;01/04/2026  11.000000&#10;01/06/2026  11.000000&#10;01/07/2026  12.500000"
+              rows={5}
+            />
+            
+            {parsedEntries.length > 0 && (
+              <div className="import-preview">
+                <div className="import-preview-title">Found {parsedEntries.length} entries:</div>
+                {parsedEntries.map((p, i) => (
+                  <div key={i} className={`import-preview-row ${p.exists ? 'exists' : 'new'}`}>
+                    <span>{new Date(p.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                    <span>{p.hours}h</span>
+                    <span className="import-status">{p.exists ? '⚠️ exists' : '✓ new'}</span>
+                  </div>
+                ))}
+                <button type="button" onClick={handleImport} className="import-btn" disabled={parsedEntries.every(p => p.exists)}>
+                  Import {parsedEntries.filter(p => !p.exists).length} New Entries
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </form>
   );
 }
