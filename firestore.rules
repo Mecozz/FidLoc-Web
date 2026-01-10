@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Time tracker - users can access their own data by userId
+    match /timetracker/{userId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Existing rules for other collections
+    match /locations/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    match /teams/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    match /users/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    match /organizations/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    match /invites/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

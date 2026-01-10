@@ -366,7 +366,18 @@ function EntryForm({ settings, entries, onAdd }) {
     e.preventDefault();
     const hours = parseFloat(hoursWorked) || 0;
     if (hours <= 0 && !isHoliday) { alert('Please enter hours worked'); return; }
-    onAdd({ date, hoursWorked: hours, isWeekend, isHoliday, notes });
+    // Save current rate settings with entry so historical entries keep their original rates
+    onAdd({ 
+      date, 
+      hoursWorked: hours, 
+      isWeekend, 
+      isHoliday, 
+      notes,
+      // Capture rate at time of entry
+      baseRate: settings.baseRate,
+      weekendDiff: settings.weekendDiff,
+      weekendDiffAppliesTo: settings.weekendDiffAppliesTo
+    });
     setHoursWorked('');
     setIsHoliday(false);
     setNotes('');
@@ -450,7 +461,17 @@ function EditEntryForm({ entry, settings, onSave, onCancel }) {
     e.preventDefault();
     const hours = parseFloat(hoursWorked) || 0;
     if (hours <= 0 && !isHoliday) { alert('Please enter hours worked'); return; }
-    onSave({ date, hoursWorked: hours, isWeekend, isHoliday, notes });
+    // Keep original rate if entry had one, otherwise use current settings
+    onSave({ 
+      date, 
+      hoursWorked: hours, 
+      isWeekend, 
+      isHoliday, 
+      notes,
+      baseRate: entry.baseRate || settings.baseRate,
+      weekendDiff: entry.weekendDiff ?? settings.weekendDiff,
+      weekendDiffAppliesTo: entry.weekendDiffAppliesTo || settings.weekendDiffAppliesTo
+    });
   };
 
   const quickButtons = settings.schedule === '4x10' ? [10, 12, 8] : [8, 10, 12];
@@ -672,8 +693,7 @@ function getWeekStart(date) {
 function calculateWeekPay(weekEntries, settings) {
   if (!settings || !weekEntries.length) return { regularHours: 0, otHours: 0, dtHours: 0, holidayHours: 0, regularPay: 0, otPay: 0, dtPay: 0, holidayPay: 0, weekendBonus: 0, totalPay: 0 };
 
-  const { baseRate, weekendDiff, weekendDiffAppliesTo, otThreshold, dtThreshold, otMultiplier, dtMultiplier } = settings;
-  const applyWeekendToAll = weekendDiffAppliesTo === 'all';
+  const { baseRate: defaultBaseRate, weekendDiff: defaultWeekendDiff, weekendDiffAppliesTo: defaultWeekendDiffAppliesTo, otThreshold, dtThreshold, otMultiplier, dtMultiplier } = settings;
   
   const sorted = [...weekEntries].sort((a, b) => a.date.localeCompare(b.date));
   
@@ -682,13 +702,19 @@ function calculateWeekPay(weekEntries, settings) {
   let regularPay = 0, otPay = 0, dtPay = 0, holidayPay = 0, weekendBonus = 0;
 
   sorted.forEach(entry => {
-    const hours = entry.hoursWorked || 0;
-    const weekendMult = entry.isWeekend ? (1 + weekendDiff / 100) : 1;
+    // Use entry's saved rate if available, otherwise fall back to current settings
+    const entryBaseRate = entry.baseRate || defaultBaseRate;
+    const entryWeekendDiff = entry.weekendDiff ?? defaultWeekendDiff;
+    const entryWeekendDiffAppliesTo = entry.weekendDiffAppliesTo || defaultWeekendDiffAppliesTo;
+    const applyWeekendToAll = entryWeekendDiffAppliesTo === 'all';
     
-    // Holiday bonus: 10 hours at base rate
+    const hours = entry.hoursWorked || 0;
+    const weekendMult = entry.isWeekend ? (1 + entryWeekendDiff / 100) : 1;
+    
+    // Holiday bonus: 10 hours at entry's base rate
     if (entry.isHoliday) {
       holidayHours += 10;
-      holidayPay += baseRate * 10;
+      holidayPay += entryBaseRate * 10;
     }
     
     let entryRegular = 0, entryOT = 0, entryDT = 0;
@@ -714,14 +740,14 @@ function calculateWeekPay(weekEntries, settings) {
     let entryRegularPay, entryOTPay, entryDTPay;
     
     if (applyWeekendToAll) {
-      const effectiveRate = baseRate * weekendMult;
+      const effectiveRate = entryBaseRate * weekendMult;
       entryRegularPay = entryRegular * effectiveRate;
       entryOTPay = entryOT * effectiveRate * otMultiplier;
       entryDTPay = entryDT * effectiveRate * dtMultiplier;
     } else {
-      entryRegularPay = entryRegular * baseRate * weekendMult;
-      entryOTPay = entryOT * baseRate * otMultiplier;
-      entryDTPay = entryDT * baseRate * dtMultiplier;
+      entryRegularPay = entryRegular * entryBaseRate * weekendMult;
+      entryOTPay = entryOT * entryBaseRate * otMultiplier;
+      entryDTPay = entryDT * entryBaseRate * dtMultiplier;
     }
     
     regularPay += entryRegularPay;
@@ -729,7 +755,7 @@ function calculateWeekPay(weekEntries, settings) {
     dtPay += entryDTPay;
     
     if (entry.isWeekend) {
-      const basePayNoWeekend = entryRegular * baseRate + entryOT * baseRate * otMultiplier + entryDT * baseRate * dtMultiplier;
+      const basePayNoWeekend = entryRegular * entryBaseRate + entryOT * entryBaseRate * otMultiplier + entryDT * entryBaseRate * dtMultiplier;
       weekendBonus += (entryRegularPay + entryOTPay + entryDTPay) - basePayNoWeekend;
     }
   });
