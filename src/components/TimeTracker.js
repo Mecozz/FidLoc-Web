@@ -516,7 +516,7 @@ function HistoryView({ entries, settings, onDelete, onEdit }) {
         const weekEntries = groupedByWeek[weekKey].sort((a, b) => a.date.localeCompare(b.date));
         const weekStart = new Date(weekKey + 'T12:00:00');
         const weekCalc = calculateWeekPay(weekEntries, settings);
-        const totalHours = weekEntries.reduce((sum, e) => sum + (e.hoursWorked || 0), 0);
+        const totalHours = weekEntries.reduce((sum, e) => sum + (e.hoursWorked || 0) + (e.isHoliday ? 10 : 0), 0);
         const isExpanded = expandedWeek === weekKey;
 
         return (
@@ -530,6 +530,7 @@ function HistoryView({ entries, settings, onDelete, onEdit }) {
                 <span className="week-hours">{totalHours}h</span>
                 {weekCalc.otHours > 0 && <span className="week-ot">{weekCalc.otHours}h OT</span>}
                 {weekCalc.dtHours > 0 && <span className="week-dt">{weekCalc.dtHours}h DT</span>}
+                {weekCalc.holidayHours > 0 && <span className="week-holiday">🎄{weekCalc.holidayHours}h</span>}
                 <span className="week-pay">${weekCalc.totalPay.toFixed(2)}</span>
               </div>
             </button>
@@ -539,6 +540,7 @@ function HistoryView({ entries, settings, onDelete, onEdit }) {
                   <span>Reg: {weekCalc.regularHours}h</span>
                   <span>OT: {weekCalc.otHours}h</span>
                   <span>DT: {weekCalc.dtHours}h</span>
+                  {weekCalc.holidayHours > 0 && <span>🎄: {weekCalc.holidayHours}h</span>}
                 </div>
                 {weekEntries.map(entry => {
                   const d = new Date(entry.date + 'T12:00:00');
@@ -595,16 +597,17 @@ function SummaryView({ entries, settings }) {
       byWeek[ws].push(e);
     });
     
-    let totalPay = 0, totalHours = 0, otHours = 0, dtHours = 0;
+    let totalPay = 0, totalHours = 0, otHours = 0, dtHours = 0, holidayHours = 0;
     Object.values(byWeek).forEach(weekEntries => {
       const calc = calculateWeekPay(weekEntries, settings);
       totalPay += calc.totalPay;
-      totalHours += calc.regularHours + calc.otHours + calc.dtHours;
+      totalHours += calc.regularHours + calc.otHours + calc.dtHours + calc.holidayHours;
       otHours += calc.otHours;
       dtHours += calc.dtHours;
+      holidayHours += calc.holidayHours;
     });
     
-    return { totalHours, otHours, dtHours, totalPay, count: periodEntries.length };
+    return { totalHours, otHours, dtHours, holidayHours, totalPay, count: periodEntries.length };
   };
 
   const thisWeek = calcPeriod(thisWeekStart, thisWeekEnd);

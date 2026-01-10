@@ -333,6 +333,7 @@
 .week-hours { color: var(--text-secondary, #888); }
 .week-ot { color: #fbbf24; font-weight: 600; font-size: 11px; }
 .week-dt { color: #ef4444; font-weight: 600; font-size: 11px; }
+.week-holiday { color: #22c55e; font-weight: 600; font-size: 11px; }
 .week-pay { color: #22c55e; font-weight: 700; }
 
 .week-entries { border-top: 1px solid var(--border-color, #333); }
