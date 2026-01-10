@@ -3,8 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, functions, auth, EmailAuthProvider, linkWithCredential } from '../firebase';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
-import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, Timestamp, orderBy, limit, setDoc, writeBatch, getDocs } from 'firebase/firestore';
-import { MapPin, LogOut, Navigation, Copy, Search, Plus, X, Share2, List, Map as MapIcon, Wifi, WifiOff, RefreshCw, Edit2, Trash2, History, RotateCcw, Trash, Sun, Moon, Monitor, ExternalLink, Users, Settings, ChevronRight, Mail, UserPlus, Shield, UserMinus, Crown, Package, Building, ClipboardList, Camera, FileText, CheckCircle, XCircle, AlertTriangle, ScanLine, StopCircle, Ruler, Clock } from 'lucide-react';
+import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, Timestamp, orderBy, limit, setDoc } from 'firebase/firestore';
+import { MapPin, LogOut, Navigation, Copy, Search, Plus, X, Share2, List, Map as MapIcon, Wifi, WifiOff, RefreshCw, Edit2, Trash2, History, RotateCcw, Trash, Sun, Moon, Monitor, ExternalLink, Users, Settings, ChevronRight, Mail, UserPlus, Shield, UserMinus, Crown, Package, Building, ClipboardList, CheckCircle, AlertTriangle, ScanLine, StopCircle, Ruler, Clock } from 'lucide-react';
 import TimeTracker from '../components/TimeTracker';
 import { useParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
@@ -292,7 +292,6 @@ function TeamMembersModal({ userOrg, userEmail, userRole, currentUserId, onClose
     const membersQuery = query(collection(db, 'organizations', userOrg, 'members'));
     const unsubMembers = onSnapshot(membersQuery, (snap) => {
       const loadedMembers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      console.log('Loaded members:', loadedMembers.map(m => ({ id: m.id, email: m.email, role: m.role })));
       setMembers(loadedMembers);
       setLoading(false);
     }, (err) => {
@@ -346,15 +345,12 @@ function TeamMembersModal({ userOrg, userEmail, userRole, currentUserId, onClose
   };
 
   const changeRole = async (memberId, newRole) => {
-    console.log('changeRole called:', { memberId, newRole, isOwner, userOrg });
     if (!isOwner) return;
     setChangingRole(memberId);
     setError('');
     try {
       const memberRef = doc(db, 'organizations', userOrg, 'members', memberId);
-      console.log('Updating member at path:', memberRef.path);
       await updateDoc(memberRef, { role: newRole });
-      console.log('Firestore updated successfully');
       // Immediately update local state
       setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m));
     } catch (err) {
@@ -369,9 +365,7 @@ function TeamMembersModal({ userOrg, userEmail, userRole, currentUserId, onClose
     setRemoving(member.id);
     setError('');
     try {
-      console.log('Removing member:', member.id, member.email);
       await deleteDoc(doc(db, 'organizations', userOrg, 'members', member.id));
-      console.log('Member removed successfully');
       // Immediately remove from local state
       setMembers(prev => prev.filter(m => m.id !== member.id));
       setConfirmRemove(null);
@@ -869,11 +863,6 @@ function InventoryModal({ userId, onClose }) {
   };
 
   const comparison = getComparison();
-
-  const openReportForm = (item) => {
-    const formUrl = 'https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u';
-    window.open(formUrl, '_blank');
-  };
 
   return (
     <div className="modal-overlay">
