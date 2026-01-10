@@ -4,7 +4,7 @@ import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDt1X0uhHu-wUC0L51T-AS77ymlusiYh7I",
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: "fidloc.firebaseapp.com",
   projectId: "fidloc",
   storageBucket: "fidloc.firebasestorage.app",
