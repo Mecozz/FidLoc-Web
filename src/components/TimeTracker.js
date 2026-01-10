@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Clock, Settings, Plus, Trash2, Download, AlertTriangle, ChevronRight, ChevronDown, Calendar, DollarSign, Edit2, Check, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { X, Clock, Settings, Plus, Trash2, Download, ChevronRight, ChevronDown, Calendar, DollarSign, Edit2, Check, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import './TimeTracker.css';
@@ -7,42 +7,67 @@ import './TimeTracker.css';
 const STORAGE_KEY = 'fidloc_timetracker';
 
 export default function TimeTracker({ userId, onClose }) {
-  const [activeTab, setActiveTab] = useState('entry');
+  const [activeTab, setActiveTab] = useState('summary');
   const [settings, setSettings] = useState(null);
   const [entries, setEntries] = useState([]);
   const [showSetup, setShowSetup] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [uiSize, setUiSize] = useState(() => localStorage.getItem('fidloc_tt_size') || 'medium');
 
-  // Load data - check Firebase first if sync enabled, then localStorage
+  const cycleSize = () => {
+    const sizes = ['small', 'medium', 'large'];
+    const currentIndex = sizes.indexOf(uiSize);
+    const nextSize = sizes[(currentIndex + 1) % sizes.length];
+    setUiSize(nextSize);
+    localStorage.setItem('fidloc_tt_size', nextSize);
+  };
+
+  // Load data - check Firebase first, then localStorage
   useEffect(() => {
     const loadData = async () => {
-      // First check localStorage for sync preference
+      setIsLoading(true);
+      
+      // First check localStorage for local data
       const localData = localStorage.getItem(STORAGE_KEY + '_' + userId);
       let localSettings = null;
       let localEntries = [];
+      let localSyncEnabled = false;
       
       if (localData) {
         const parsed = JSON.parse(localData);
         localSettings = parsed.settings || null;
         localEntries = parsed.entries || [];
-        setSyncEnabled(parsed.syncEnabled || false);
+        localSyncEnabled = parsed.syncEnabled || false;
       }
 
-      // If sync is enabled, try to load from Firebase
-      if (localSettings?.syncEnabled) {
+      // Always try to load from Firebase if user is logged in
+      if (userId) {
         try {
           const docRef = doc(db, 'timetracker', userId);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
             const firebaseData = docSnap.data();
-            setSettings(firebaseData.settings || localSettings);
-            setEntries(firebaseData.entries || localEntries);
-            setSyncEnabled(true);
-            setLastSync(firebaseData.lastSync || null);
-            return;
+            const fbSettings = firebaseData.settings;
+            const fbEntries = firebaseData.entries || [];
+            
+            // Use Firebase data if it exists
+            if (fbSettings || fbEntries.length > 0) {
+              setSettings(fbSettings || null);
+              setEntries(fbEntries);
+              setSyncEnabled(true);
+              // Save to localStorage so sync stays enabled
+              localStorage.setItem(STORAGE_KEY + '_' + userId, JSON.stringify({
+                settings: fbSettings,
+                entries: fbEntries,
+                syncEnabled: true
+              }));
+              if (!fbSettings) setShowSetup(true);
+              setIsLoading(false);
+              return;
+            }
           }
         } catch (err) {
           console.error('Firebase load error:', err);
@@ -52,6 +77,9 @@ export default function TimeTracker({ userId, onClose }) {
       // Fall back to localStorage
       setSettings(localSettings);
       setEntries(localEntries);
+      setSyncEnabled(localSyncEnabled);
+      if (!localSettings) setShowSetup(true);
+      setIsLoading(false);
     };
 
     loadData();
@@ -74,7 +102,6 @@ export default function TimeTracker({ userId, onClose }) {
           lastSync: new Date().toISOString(),
           userId
         });
-        setLastSync(new Date().toISOString());
       } catch (err) {
         console.error('Firebase save error:', err);
       }
@@ -84,14 +111,10 @@ export default function TimeTracker({ userId, onClose }) {
 
   // Auto-save when data changes
   useEffect(() => {
-    if (settings !== null || entries.length > 0) {
+    if (!isLoading && (settings !== null || entries.length > 0)) {
       saveData(settings, entries, syncEnabled);
     }
-  }, [settings, entries, syncEnabled, saveData]);
-
-  useEffect(() => {
-    if (settings === null) setShowSetup(true);
-  }, [settings]);
+  }, [settings, entries, syncEnabled, saveData, isLoading]);
 
   const handleSaveSettings = (newSettings) => {
     setSettings(newSettings);
@@ -119,7 +142,6 @@ export default function TimeTracker({ userId, onClose }) {
         lastSync: new Date().toISOString(),
         userId
       });
-      setLastSync(new Date().toISOString());
     } catch (err) {
       console.error('Force sync error:', err);
       alert('Sync failed. Check your connection.');
@@ -128,7 +150,15 @@ export default function TimeTracker({ userId, onClose }) {
   };
 
   const addEntry = (entry) => {
-    setEntries([...entries, { ...entry, id: Date.now() }]);
+    setEntries(prev => [...prev, { ...entry, id: Date.now() }]);
+  };
+
+  const addMultipleEntries = (newEntries) => {
+    const withIds = newEntries.map((entry, index) => ({ 
+      ...entry, 
+      id: Date.now() + index 
+    }));
+    setEntries(prev => [...prev, ...withIds]);
   };
 
   const updateEntry = (id, updatedEntry) => {
@@ -176,10 +206,15 @@ export default function TimeTracker({ userId, onClose }) {
 
   return (
     <div className="modal-overlay">
-      <div className="modal timetracker-modal">
+      <div className={`modal timetracker-modal size-${uiSize}`}>
         <div className="modal-header">
           <h2><Clock size={20} /> Time Tracker</h2>
-          <button onClick={onClose} className="close-button"><X size={24} /></button>
+          <div className="header-actions">
+            <button onClick={cycleSize} className="size-btn" title={`Size: ${uiSize}`}>
+              {uiSize === 'small' ? 'S' : uiSize === 'medium' ? 'M' : 'L'}
+            </button>
+            <button onClick={onClose} className="close-button"><X size={24} /></button>
+          </div>
         </div>
         
         <div className={`sync-status ${syncEnabled ? 'enabled' : 'disabled'}`}>
@@ -202,20 +237,25 @@ export default function TimeTracker({ userId, onClose }) {
           </button>
         </div>
 
-        {showSetup ? (
+        {isLoading ? (
+          <div className="tt-loading">
+            <RefreshCw size={24} className="spinning" />
+            <p>Loading...</p>
+          </div>
+        ) : showSetup ? (
           <SetupScreen onSave={handleSaveSettings} existingSettings={settings} onCancel={() => settings && setShowSetup(false)} entries={entries} onUpdateEntries={setEntries} />
         ) : editingEntry ? (
           <EditEntryForm entry={editingEntry} settings={settings} onSave={(updated) => updateEntry(editingEntry.id, updated)} onCancel={() => setEditingEntry(null)} />
         ) : (
           <>
             <div className="tt-tabs">
-              <button onClick={() => setActiveTab('entry')} className={`tt-tab ${activeTab === 'entry' ? 'active' : ''}`}><Plus size={16} /> Add</button>
-              <button onClick={() => setActiveTab('history')} className={`tt-tab ${activeTab === 'history' ? 'active' : ''}`}><Calendar size={16} /> History</button>
               <button onClick={() => setActiveTab('summary')} className={`tt-tab ${activeTab === 'summary' ? 'active' : ''}`}><DollarSign size={16} /> Summary</button>
+              <button onClick={() => setActiveTab('history')} className={`tt-tab ${activeTab === 'history' ? 'active' : ''}`}><Calendar size={16} /> History</button>
+              <button onClick={() => setActiveTab('entry')} className={`tt-tab ${activeTab === 'entry' ? 'active' : ''}`}><Plus size={16} /> Add</button>
               <button onClick={() => setShowSetup(true)} className="tt-tab settings-tab"><Settings size={16} /></button>
             </div>
             <div className="tt-content">
-              {activeTab === 'entry' && <EntryForm settings={settings} entries={entries} onAdd={addEntry} onUpdate={updateEntry} />}
+              {activeTab === 'entry' && <EntryForm settings={settings} entries={entries} onAdd={addEntry} onAddMultiple={addMultipleEntries} onUpdate={updateEntry} />}
               {activeTab === 'history' && <HistoryView entries={entries} settings={settings} onDelete={deleteEntry} onEdit={setEditingEntry} />}
               {activeTab === 'summary' && <SummaryView entries={entries} settings={settings} />}
             </div>
@@ -323,7 +363,9 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
               <input 
                 type="date" 
                 value={changeStartDate} 
-                onChange={e => setChangeStartDate(e.target.value)} 
+                onChange={e => setChangeStartDate(e.target.value)}
+                min="2020-01-01"
+                max="2030-12-31"
               />
             </div>
             <div className="rate-change-actions">
@@ -418,7 +460,7 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
   );
 }
 
-function EntryForm({ settings, entries, onAdd, onUpdate }) {
+function EntryForm({ settings, entries, onAdd, onAddMultiple, onUpdate }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [hoursWorked, setHoursWorked] = useState('');
   const [isHoliday, setIsHoliday] = useState(false);
@@ -476,9 +518,10 @@ function EntryForm({ settings, entries, onAdd, onUpdate }) {
     
     for (const line of lines) {
       // Look for date pattern MM/DD/YYYY or M/D/YYYY
-      const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      const dateMatch = line.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
       if (!dateMatch) continue;
       
+      // eslint-disable-next-line no-unused-vars
       const [fullDate, mm, dd, yyyy] = dateMatch;
       
       // Skip if year is not reasonable (2020-2030)
@@ -539,17 +582,18 @@ function EntryForm({ settings, entries, onAdd, onUpdate }) {
       return;
     }
     
-    // Add new entries
-    toAdd.forEach(p => {
-      onAdd({
+    // Add new entries in batch
+    if (toAdd.length > 0) {
+      const newEntries = toAdd.map(p => ({
         date: p.date,
         hoursWorked: p.hours,
         shiftDiff: settings.shiftDiff || 'none',
         isHoliday: false,
         notes: 'Imported from HR',
         baseRate: settings.baseRate
-      });
-    });
+      }));
+      onAddMultiple(newEntries);
+    }
     
     // Update existing entries
     if (toUpdate.length > 0 && onUpdate) {

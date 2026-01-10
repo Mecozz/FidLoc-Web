@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { collection, query, where, getDocs, doc, updateDoc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, setDoc } from 'firebase/firestore';
 import { MapPin, Check, X, LogOut } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import './Invites.css';
 
 export default function Invites() {
@@ -11,13 +10,8 @@ export default function Invites() {
   const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
-  const navigate = useNavigate();
 
-  useEffect(() => {
-    loadInvites();
-  }, [user]);
-
-  const loadInvites = async () => {
+  const loadInvites = useCallback(async () => {
     if (!user?.email) return;
 
     try {
@@ -38,7 +32,11 @@ export default function Invites() {
       console.error('Error loading invites:', err);
     }
     setLoading(false);
-  };
+  }, [user]);
+
+  useEffect(() => {
+    loadInvites();
+  }, [loadInvites]);
 
   const acceptInvite = async (invite) => {
     setProcessing(invite.id);

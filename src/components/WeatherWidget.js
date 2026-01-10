@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Cloud, Sun, CloudRain, CloudSnow, Wind, AlertTriangle, Zap, Thermometer, X, RefreshCw, CloudLightning, Droplets } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Cloud, Sun, CloudRain, CloudSnow, Wind, AlertTriangle, Zap, X, RefreshCw, CloudLightning, Droplets } from 'lucide-react';
 import './WeatherWidget.css';
 
 const WEATHER_CODES = {
@@ -37,8 +37,46 @@ export default function WeatherWidget({ onClose }) {
   const [error, setError] = useState(null);
   const [location, setLocation] = useState(null);
   const [expanded, setExpanded] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  const fetchWeather = async (lat, lng) => {
+  const CACHE_KEY = 'fidloc_weather_cache';
+
+  const shouldRefresh = (cachedTime) => {
+    if (!cachedTime) return true;
+    const cached = new Date(cachedTime);
+    const now = new Date();
+    // Get the most recent refresh hour
+    const hour = now.getHours();
+    const refreshHours = [0, 3, 6, 9, 12, 15, 18, 21];
+    const lastRefreshHour = [...refreshHours].reverse().find(h => h <= hour) ?? 21;
+    const lastRefreshTime = new Date(now);
+    lastRefreshTime.setHours(lastRefreshHour, 0, 0, 0);
+    if (lastRefreshHour > hour) lastRefreshTime.setDate(lastRefreshTime.getDate() - 1);
+    // Refresh if cache is older than last refresh time
+    return cached < lastRefreshTime;
+  };
+
+  const fetchWeather = useCallback(async (lat, lng, forceRefresh = false) => {
+    // Check cache first
+    if (!forceRefresh) {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          const { data, timestamp, coords } = JSON.parse(cached);
+          // Use cache if it's still valid and location is close
+          const distOk = Math.abs(coords.lat - lat) < 0.1 && Math.abs(coords.lng - lng) < 0.1;
+          if (!shouldRefresh(timestamp) && distOk) {
+            setWeather(data);
+            setLastUpdated(new Date(timestamp));
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (e) {
+        console.log('Cache read error:', e);
+      }
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -46,40 +84,86 @@ export default function WeatherWidget({ onClose }) {
       // Open-Meteo API - free, no key required
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_gusts_10m,wind_direction_10m&hourly=temperature_2m,weather_code,wind_speed_10m,wind_gusts_10m,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,precipitation_probability_max&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=America%2FNew_York&forecast_days=3`;
       
-      const response = await fetch(url);
+      // Add timeout to fetch
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) throw new Error('Weather API error');
+      
       const data = await response.json();
+      const now = new Date();
+      
+      // Save to cache
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+          data,
+          timestamp: now.toISOString(),
+          coords: { lat, lng }
+        }));
+      } catch (e) {
+        console.log('Cache write error:', e);
+      }
       
       setWeather(data);
+      setLastUpdated(now);
       setLoading(false);
     } catch (err) {
       console.error('Weather fetch error:', err);
-      setError('Failed to load weather');
+      // Try to use stale cache on error
+      try {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          setWeather(data);
+          setLastUpdated(new Date(timestamp));
+          setLoading(false);
+          return;
+        }
+      } catch (e) { /* ignore */ }
+      setError(err.name === 'AbortError' ? 'Weather request timed out' : 'Failed to load weather');
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    // Default location (Manchester, NH)
+    const defaultLat = 42.9956;
+    const defaultLng = -71.4548;
+    
     if (navigator.geolocation) {
+      // Set a timeout for geolocation - if it takes too long, use default
+      const geoTimeout = setTimeout(() => {
+        console.log('Geolocation timeout, using default');
+        setLocation({ lat: defaultLat, lng: defaultLng });
+        fetchWeather(defaultLat, defaultLng);
+      }, 5000); // 5 second timeout for GPS
+      
       navigator.geolocation.getCurrentPosition(
         (pos) => {
+          clearTimeout(geoTimeout);
           setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           fetchWeather(pos.coords.latitude, pos.coords.longitude);
         },
         () => {
-          // Default to Manchester, NH if location denied
-          setLocation({ lat: 42.9956, lng: -71.4548 });
-          fetchWeather(42.9956, -71.4548);
-        }
+          clearTimeout(geoTimeout);
+          // Use default if location denied
+          setLocation({ lat: defaultLat, lng: defaultLng });
+          fetchWeather(defaultLat, defaultLng);
+        },
+        { timeout: 5000, maximumAge: 300000 } // 5 sec timeout, cache for 5 min
       );
     } else {
-      setLocation({ lat: 42.9956, lng: -71.4548 });
-      fetchWeather(42.9956, -71.4548);
+      setLocation({ lat: defaultLat, lng: defaultLng });
+      fetchWeather(defaultLat, defaultLng);
     }
-  }, []);
+  }, [fetchWeather]);
 
   const handleRefresh = () => {
     if (location) {
-      fetchWeather(location.lat, location.lng);
+      fetchWeather(location.lat, location.lng, true); // force refresh
     }
   };
 
@@ -245,6 +329,7 @@ export default function WeatherWidget({ onClose }) {
 
       <div className="weather-footer" onClick={() => setExpanded(!expanded)}>
         {expanded ? 'Tap to collapse' : 'Tap for forecast'}
+        {lastUpdated && <span className="weather-updated"> • Updated {lastUpdated.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>}
       </div>
     </div>
   );
