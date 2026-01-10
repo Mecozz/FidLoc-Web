@@ -114,6 +114,43 @@
   font-size: 14px;
 }
 
+/* Weekend Diff Applies To */
+.weekend-applies-to {
+  margin-top: 12px;
+}
+.applies-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  margin-bottom: 8px;
+}
+.applies-options {
+  display: flex;
+  gap: 10px;
+}
+.applies-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--input-bg, #0f0f23);
+  border: 2px solid var(--border-color, #333);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  transition: all 0.2s;
+}
+.applies-option:hover { border-color: #4dabf7; }
+.applies-option.selected { 
+  border-color: #22c55e; 
+  background: rgba(34, 197, 94, 0.1); 
+  color: var(--text-primary, #fff);
+}
+.applies-option input { display: none; }
+
 /* Weekend Toggle */
 .weekend-toggle { margin-bottom: 12px; }
 .toggle-label {

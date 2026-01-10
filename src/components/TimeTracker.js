@@ -115,6 +115,7 @@ function SetupScreen({ onSave, existingSettings, onCancel }) {
   const [schedule, setSchedule] = useState(existingSettings?.schedule || '5x8');
   const [baseRate, setBaseRate] = useState(existingSettings?.baseRate || '');
   const [weekendDiff, setWeekendDiff] = useState(existingSettings?.weekendDiff ?? '10');
+  const [weekendDiffAppliesTo, setWeekendDiffAppliesTo] = useState(existingSettings?.weekendDiffAppliesTo || 'base');
   const [otThreshold, setOtThreshold] = useState(existingSettings?.otThreshold || '40');
   const [dtThreshold, setDtThreshold] = useState(existingSettings?.dtThreshold || '52');
   const [otMultiplier, setOtMultiplier] = useState(existingSettings?.otMultiplier || '1.5');
@@ -127,6 +128,7 @@ function SetupScreen({ onSave, existingSettings, onCancel }) {
       schedule,
       baseRate: parseFloat(baseRate),
       weekendDiff: parseFloat(weekendDiff) || 0,
+      weekendDiffAppliesTo,
       otThreshold: parseFloat(otThreshold) || 40,
       dtThreshold: parseFloat(dtThreshold) || 52,
       otMultiplier: parseFloat(otMultiplier) || 1.5,
@@ -169,6 +171,19 @@ function SetupScreen({ onSave, existingSettings, onCancel }) {
             <div className="form-group">
               <label>Weekend Differential</label>
               <div className="input-with-suffix"><input type="number" step="0.1" value={weekendDiff} onChange={e => setWeekendDiff(e.target.value)} placeholder="10" /><span>%</span></div>
+            </div>
+          </div>
+          <div className="weekend-applies-to">
+            <label className="applies-label">Weekend diff applies to:</label>
+            <div className="applies-options">
+              <label className={`applies-option ${weekendDiffAppliesTo === 'base' ? 'selected' : ''}`}>
+                <input type="radio" name="weekendApplies" value="base" checked={weekendDiffAppliesTo === 'base'} onChange={() => setWeekendDiffAppliesTo('base')} />
+                <span>First 40hrs only</span>
+              </label>
+              <label className={`applies-option ${weekendDiffAppliesTo === 'all' ? 'selected' : ''}`}>
+                <input type="radio" name="weekendApplies" value="all" checked={weekendDiffAppliesTo === 'all'} onChange={() => setWeekendDiffAppliesTo('all')} />
+                <span>All hours (incl OT)</span>
+              </label>
             </div>
           </div>
         </div>
@@ -513,7 +528,8 @@ function getWeekStart(date) {
 function calculateWeekPay(weekEntries, settings) {
   if (!settings || !weekEntries.length) return { regularHours: 0, otHours: 0, dtHours: 0, regularPay: 0, otPay: 0, dtPay: 0, weekendBonus: 0, totalPay: 0 };
 
-  const { baseRate, weekendDiff, otThreshold, dtThreshold, otMultiplier, dtMultiplier } = settings;
+  const { baseRate, weekendDiff, weekendDiffAppliesTo, otThreshold, dtThreshold, otMultiplier, dtMultiplier } = settings;
+  const applyWeekendToAll = weekendDiffAppliesTo === 'all';
   
   // Sort entries by date
   const sorted = [...weekEntries].sort((a, b) => a.date.localeCompare(b.date));
@@ -525,7 +541,6 @@ function calculateWeekPay(weekEntries, settings) {
   sorted.forEach(entry => {
     const hours = entry.hoursWorked || 0;
     const weekendMult = entry.isWeekend ? (1 + weekendDiff / 100) : 1;
-    const effectiveRate = baseRate * weekendMult;
     
     // Calculate how this entry's hours split between regular/OT/DT
     let entryRegular = 0, entryOT = 0, entryDT = 0;
@@ -548,17 +563,30 @@ function calculateWeekPay(weekEntries, settings) {
     otHours += entryOT;
     dtHours += entryDT;
     
-    const entryRegularPay = entryRegular * effectiveRate;
-    const entryOTPay = entryOT * effectiveRate * otMultiplier;
-    const entryDTPay = entryDT * effectiveRate * dtMultiplier;
+    // Calculate pay based on weekend diff setting
+    let entryRegularPay, entryOTPay, entryDTPay;
+    
+    if (applyWeekendToAll) {
+      // Weekend diff applies to ALL hours (regular, OT, and DT)
+      const effectiveRate = baseRate * weekendMult;
+      entryRegularPay = entryRegular * effectiveRate;
+      entryOTPay = entryOT * effectiveRate * otMultiplier;
+      entryDTPay = entryDT * effectiveRate * dtMultiplier;
+    } else {
+      // Weekend diff only applies to first 40 hours (regular pay)
+      entryRegularPay = entryRegular * baseRate * weekendMult;
+      entryOTPay = entryOT * baseRate * otMultiplier; // No weekend diff on OT
+      entryDTPay = entryDT * baseRate * dtMultiplier; // No weekend diff on DT
+    }
     
     regularPay += entryRegularPay;
     otPay += entryOTPay;
     dtPay += entryDTPay;
     
+    // Calculate weekend bonus for display
     if (entry.isWeekend) {
-      const basePay = entryRegular * baseRate + entryOT * baseRate * otMultiplier + entryDT * baseRate * dtMultiplier;
-      weekendBonus += (entryRegularPay + entryOTPay + entryDTPay) - basePay;
+      const basePayNoWeekend = entryRegular * baseRate + entryOT * baseRate * otMultiplier + entryDT * baseRate * dtMultiplier;
+      weekendBonus += (entryRegularPay + entryOTPay + entryDTPay) - basePayNoWeekend;
     }
   });
 
