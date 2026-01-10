@@ -391,13 +391,6 @@ function EntryForm({ settings, entries, onAdd }) {
         <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
       </div>
 
-      <div className="weekend-toggle">
-        <label className={`toggle-label ${isWeekend ? 'active' : ''}`}>
-          <input type="checkbox" checked={isWeekend} onChange={e => setIsWeekend(e.target.checked)} />
-          <span>Weekend (+{settings.weekendDiff}%)</span>
-        </label>
-      </div>
-
       <div className="holiday-toggle">
         <label className={`toggle-label holiday ${isHoliday ? 'active' : ''}`}>
           <input type="checkbox" checked={isHoliday} onChange={e => setIsHoliday(e.target.checked)} />
@@ -429,7 +422,7 @@ function EntryForm({ settings, entries, onAdd }) {
             {previewCalc.regularHours > 0 && <div className="preview-row"><span>Regular ({previewCalc.regularHours}h):</span><span>${previewCalc.regularPay.toFixed(2)}</span></div>}
             {previewCalc.otHours > 0 && <div className="preview-row ot"><span>OT ({previewCalc.otHours}h × {settings.otMultiplier}):</span><span>${previewCalc.otPay.toFixed(2)}</span></div>}
             {previewCalc.dtHours > 0 && <div className="preview-row dt"><span>DT ({previewCalc.dtHours}h × {settings.dtMultiplier}):</span><span>${previewCalc.dtPay.toFixed(2)}</span></div>}
-            {isWeekend && <div className="preview-row bonus"><span>Weekend Bonus:</span><span>+${previewCalc.weekendBonus.toFixed(2)}</span></div>}
+            {previewCalc.weekendBonus > 0 && <div className="preview-row bonus"><span>Weekend Bonus:</span><span>+${previewCalc.weekendBonus.toFixed(2)}</span></div>}
             {isHoliday && <div className="preview-row holiday"><span>🎄 Holiday (10h):</span><span>+${(settings.baseRate * 10).toFixed(2)}</span></div>}
           </div>
           <div className="preview-total"><span>Week Total:</span><span>${(previewCalc.totalPay + (isHoliday ? settings.baseRate * 10 : 0)).toFixed(2)}</span></div>
@@ -469,13 +462,6 @@ function EditEntryForm({ entry, settings, onSave, onCancel }) {
         <div className="form-group">
           <label>Date</label>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
-        </div>
-
-        <div className="weekend-toggle">
-          <label className={`toggle-label ${isWeekend ? 'active' : ''}`}>
-            <input type="checkbox" checked={isWeekend} onChange={e => setIsWeekend(e.target.checked)} />
-            <span>Weekend (+{settings.weekendDiff}%)</span>
-          </label>
         </div>
 
         <div className="holiday-toggle">
