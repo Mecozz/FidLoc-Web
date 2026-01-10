@@ -475,9 +475,7 @@ function EntryForm({ settings, entries, onAdd, onUpdate }) {
   const parseImportText = (text) => {
     const parsed = [];
     
-    // Multiple patterns to catch different OCR outputs
-    // Pattern 1: MM/DD/YYYY followed eventually by hours like 11.000000 or 11.5
-    // Pattern 2: Handle OCR artifacts and spacing issues
+    // Split into lines and process each
     const lines = text.split(/[\n\r]+/);
     
     for (const line of lines) {
@@ -485,16 +483,27 @@ function EntryForm({ settings, entries, onAdd, onUpdate }) {
       const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
       if (!dateMatch) continue;
       
-      const [, mm, dd, yyyy] = dateMatch;
+      const [fullDate, mm, dd, yyyy] = dateMatch;
+      
+      // Skip if year is not reasonable (2020-2030)
+      const year = parseInt(yyyy);
+      if (year < 2020 || year > 2030) continue;
+      
       const dateStr = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
       
-      // Look for hours - usually a number with decimals like 11.000000 or 10.5
-      // Could appear anywhere after the date in the line
-      const afterDate = line.substring(line.indexOf(dateMatch[0]) + dateMatch[0].length);
-      const hoursMatch = afterDate.match(/(\d{1,2})\.(\d+)/);
+      // Look for hours - a number like 11.000000 or 10.5 or 12.500000
+      // Must be after the date in the line
+      // Skip times like 7:00AM by looking for decimal numbers without colons nearby
+      const afterDate = line.substring(line.indexOf(fullDate) + fullDate.length);
       
-      if (hoursMatch) {
-        const hours = parseFloat(hoursMatch[0]);
+      // Pattern: Look for standalone decimal number (hours worked)
+      // This should match 11.000000, 10.5, 12.500000, etc.
+      // Avoid matching times by requiring it's not preceded/followed by colon
+      const hoursMatches = afterDate.match(/(?<![:\d])(\d{1,2}\.\d+)(?![:\d])/g);
+      
+      if (hoursMatches && hoursMatches.length > 0) {
+        // Take the first decimal number found (should be hours)
+        const hours = parseFloat(hoursMatches[0]);
         if (hours > 0 && hours <= 24) {
           const exists = entries.some(e => e.date === dateStr);
           // Avoid duplicates in parsed array
