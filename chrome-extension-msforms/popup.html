@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>FidLoc MS Forms Filler</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      width: 380px;
+      background: #1a1a2e;
+      color: #eee;
+      padding: 16px;
+    }
+    
+    h1 {
+      font-size: 18px;
+      color: #4dabf7;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    h1::before {
+      content: "📍";
+    }
+    
+    .section {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .section-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+      color: #aaa;
+    }
+    
+    input, select, textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #333;
+      border-radius: 4px;
+      background: #0f0f23;
+      color: #fff;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #4dabf7;
+    }
+    
+    textarea {
+      height: 120px;
+      resize: vertical;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+    }
+    
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #4dabf7, #228be6);
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #74c0fc, #339af0);
+      transform: translateY(-1px);
+    }
+    
+    .btn-secondary {
+      background: #2d3436;
+      color: #ddd;
+      margin-top: 8px;
+    }
+    
+    .btn-secondary:hover {
+      background: #3d4446;
+    }
+    
+    .btn-danger {
+      background: #e03131;
+      color: white;
+      margin-top: 8px;
+    }
+    
+    .btn-danger:hover {
+      background: #f03e3e;
+    }
+    
+    .status {
+      font-size: 12px;
+      padding: 8px;
+      border-radius: 4px;
+      margin-top: 10px;
+      display: none;
+    }
+    
+    .status.success {
+      display: block;
+      background: rgba(64, 192, 87, 0.2);
+      color: #69db7c;
+      border: 1px solid rgba(64, 192, 87, 0.3);
+    }
+    
+    .status.error {
+      display: block;
+      background: rgba(250, 82, 82, 0.2);
+      color: #ff8787;
+      border: 1px solid rgba(250, 82, 82, 0.3);
+    }
+    
+    .status.info {
+      display: block;
+      background: rgba(77, 171, 247, 0.2);
+      color: #74c0fc;
+      border: 1px solid rgba(77, 171, 247, 0.3);
+    }
+    
+    .queue-info {
+      font-size: 13px;
+      color: #aaa;
+      margin-bottom: 8px;
+    }
+    
+    .queue-count {
+      color: #4dabf7;
+      font-weight: bold;
+    }
+    
+    .controls {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    
+    .controls button {
+      flex: 1;
+    }
+    
+    .help-text {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    
+    #currentIndex {
+      text-align: center;
+      font-size: 16px;
+      padding: 12px;
+      background: #0f0f23;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+    
+    #currentIndex .current {
+      color: #4dabf7;
+      font-weight: bold;
+      font-size: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>FidLoc Forms Filler</h1>
+  
+  <div class="section">
+    <div class="section-title">Default Values</div>
+    
+    <label for="techName">Technician Name</label>
+    <input type="text" id="techName" placeholder="e.g. Darren Couturier">
+    
+    <label for="garage">Garage</label>
+    <select id="garage">
+      <option value="Concord">Concord</option>
+      <option value="Nashua">Nashua</option>
+      <option value="Greenland">Greenland</option>
+      <option value="Keene">Keene</option>
+      <option value="Laconia">Laconia</option>
+    </select>
+    
+    <label for="status">Equipment Status</label>
+    <select id="status">
+      <option value="Missing">Missing</option>
+      <option value="Found">Found</option>
+      <option value="Damaged">Damaged</option>
+    </select>
+    
+    <button class="btn-secondary" id="saveDefaults">💾 Save Defaults</button>
+  </div>
+  
+  <div class="section">
+    <div class="section-title">Serial Numbers Queue</div>
+    
+    <label for="serials">Paste serial numbers (one per line)</label>
+    <textarea id="serials" placeholder="ABC123456&#10;DEF789012&#10;GHI345678"></textarea>
+    <p class="help-text">Paste your list of missing serial numbers from FidLoc inventory comparison.</p>
+    
+    <button class="btn-primary" id="loadQueue">📋 Load Queue</button>
+  </div>
+  
+  <div class="section" id="queueSection" style="display: none;">
+    <div class="section-title">Current Queue</div>
+    
+    <div id="currentIndex">
+      Item <span class="current" id="currentNum">0</span> of <span id="totalNum">0</span>
+    </div>
+    
+    <div class="queue-info">
+      Next serial: <span class="queue-count" id="nextSerial">-</span>
+    </div>
+    
+    <button class="btn-primary" id="fillNext">⚡ Fill Next & Submit</button>
+    
+    <div class="controls">
+      <button class="btn-secondary" id="skipOne">⏭️ Skip</button>
+      <button class="btn-danger" id="clearQueue">🗑️ Clear All</button>
+    </div>
+  </div>
+  
+  <div id="statusMsg" class="status"></div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

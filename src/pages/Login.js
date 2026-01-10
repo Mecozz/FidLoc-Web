@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import { MapPin } from 'lucide-react';
 import { auth } from '../firebase';
-import { OAuthProvider, signInWithPopup } from 'firebase/auth';
+import { OAuthProvider, signInWithPopup, sendPasswordResetEmail } from 'firebase/auth';
 import './Login.css';
 
 export default function Login() {
@@ -11,7 +11,29 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
   const { login } = useAuth();
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setError('Enter your email address first, then click Forgot Password');
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+    } catch (err) {
+      if (err.code === 'auth/user-not-found') {
+        setError('No account found with that email');
+      } else {
+        setError('Failed to send reset email. Try again.');
+      }
+      console.error(err);
+    }
+    setLoading(false);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -102,7 +124,16 @@ export default function Login() {
                 placeholder="••••••••"
                 required
               />
+              <button type="button" onClick={handleForgotPassword} className="forgot-link" disabled={loading}>
+                Forgot Password?
+              </button>
             </div>
+
+            {resetSent && (
+              <div className="success-message">
+                ✅ Password reset email sent! Check your inbox.
+              </div>
+            )}
 
             <button type="submit" disabled={loading} className="login-button">
               {loading ? 'Signing in...' : 'Sign In'}

@@ -1,0 +1,189 @@
+.form-fill-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.form-fill-container {
+  max-width: 500px;
+  width: 100%;
+  text-align: center;
+}
+
+.form-fill-logo {
+  font-size: 48px;
+  margin-bottom: 10px;
+}
+
+.form-fill-page h1 {
+  color: #4ecdc4;
+  margin-bottom: 10px;
+  font-size: 24px;
+}
+
+.form-fill-page .subtitle {
+  color: #888;
+  margin-bottom: 30px;
+  font-size: 14px;
+}
+
+.info-card {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  color: #888;
+  font-size: 14px;
+}
+
+.info-value {
+  color: #4ecdc4;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.serial-highlight {
+  background: #4ecdc4;
+  color: #1a1a2e;
+  padding: 15px 25px;
+  border-radius: 10px;
+  font-size: 24px;
+  font-weight: bold;
+  font-family: 'Monaco', 'Menlo', monospace;
+  margin: 20px 0;
+  display: inline-block;
+}
+
+.status-box {
+  margin: 20px 0;
+  padding: 15px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.status-box.loading {
+  background: rgba(78, 205, 196, 0.2);
+  color: #4ecdc4;
+}
+
+.status-box.success {
+  background: rgba(46, 213, 115, 0.2);
+  color: #2ed573;
+}
+
+.status-box.error {
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+}
+
+.form-fill-page .spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 3px solid rgba(78, 205, 196, 0.3);
+  border-radius: 50%;
+  border-top-color: #4ecdc4;
+  animation: spin 1s linear infinite;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.form-fill-page .btn {
+  display: inline-block;
+  padding: 15px 25px;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  margin: 5px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.form-fill-page .btn:active {
+  transform: scale(0.98);
+}
+
+.form-fill-page .btn-primary {
+  background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+  color: #1a1a2e;
+}
+
+.form-fill-page .btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.form-fill-page .btn-copy {
+  width: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  margin-top: 15px;
+}
+
+.form-fill-page .btn-copy.copied {
+  background: linear-gradient(135deg, #2ed573 0%, #26de81 100%);
+}
+
+.form-fill-page .instructions {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.form-fill-page .instructions h3 {
+  color: #4ecdc4;
+  margin-bottom: 15px;
+  font-size: 16px;
+}
+
+.form-fill-page .instructions ol {
+  padding-left: 20px;
+  margin: 0;
+}
+
+.form-fill-page .instructions li {
+  margin-bottom: 10px;
+  color: #ccc;
+}
+
+.form-fill-page .help-text {
+  color: #888;
+  margin: 20px 0;
+  font-size: 14px;
+}
+
+.button-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}

@@ -1,0 +1,66 @@
+================================================================================
+FIDLOC MICROSOFT FORMS AUTO-FILL BOOKMARKLET
+================================================================================
+
+WHAT THIS DOES:
+- Auto-fills your name: "Darren Couturier"
+- Auto-fills garage: "Concord"  
+- Auto-fills the serial number (from clipboard or prompt)
+- Selects "Missing" for equipment status
+
+================================================================================
+INSTALLATION (iPhone Safari):
+================================================================================
+
+1. Open Safari on your iPhone
+2. Bookmark ANY page (we'll edit it)
+3. Go to Bookmarks, find the bookmark you just made
+4. Tap "Edit"
+5. Change the NAME to: Fill Form
+6. Delete the URL and paste the BOOKMARKLET CODE below
+7. Save
+
+================================================================================
+BOOKMARKLET CODE (copy everything between the lines):
+================================================================================
+
+javascript:(async()=>{const C={name:"Darren Couturier",garage:"Concord",status:"Missing",ids:{n:"rda892478c0b741ecb670fda088fcbc7b",g:"r8076010f6735476abb0af5bfb040117e",s:"rfa582ebfb11e40f3bf00d8e0a9efbe9c",e:"r4eb635e098d24e8a8de3ed2331979cdb"}};function setV(i,v){if(!i)return!1;const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set;s.call(i,v);i.dispatchEvent(new Event("input",{bubbles:!0}));i.dispatchEvent(new Event("change",{bubbles:!0}));return!0}function find(id){let e=document.querySelector(`input[aria-labelledby*="${id}"]`);if(e)return e;e=document.querySelector(`textarea[aria-labelledby*="${id}"]`);return e}function radio(v){const r=document.querySelectorAll('[role="radio"]');for(const x of r){if((x.textContent||"").includes(v)){x.click();return!0}}return!1}let serial;try{serial=await navigator.clipboard.readText();if(!serial||!confirm(`Use: "${serial}"?`))serial=prompt("Serial:")}catch{serial=prompt("Serial:")}if(!serial){alert("Cancelled");return}let f=0;if(setV(find(C.ids.n),C.name))f++;await new Promise(r=>setTimeout(r,50));if(setV(find(C.ids.g),C.garage))f++;await new Promise(r=>setTimeout(r,50));if(setV(find(C.ids.s),serial))f++;await new Promise(r=>setTimeout(r,50));if(radio(C.status))f++;alert(f>=3?`✅ Filled!\n\nSerial: ${serial}\n\nTap Submit!`:`⚠️ ${f}/4 filled`)})();
+
+================================================================================
+USAGE:
+================================================================================
+
+1. In FidLoc, tap a serial to copy it
+2. Open the Microsoft Form in Safari (new tab)
+3. Tap the "Fill Form" bookmark
+4. Confirm the serial (from clipboard) or enter manually
+5. Form fills automatically!
+6. Tap Submit
+7. After submit, go back to FidLoc, tap next serial, repeat!
+
+================================================================================
+TROUBLESHOOTING:
+================================================================================
+
+If fields don't fill:
+- Make sure you're on the Microsoft Form page
+- Try refreshing the form page and running bookmarklet again
+- Some fields may need manual entry if selectors changed
+
+If clipboard doesn't work:
+- Safari may block clipboard access
+- Just tap OK when prompted and type the serial manually
+- Or copy serial, then type it in the prompt
+
+================================================================================
+ALTERNATIVE: Chrome on Desktop
+================================================================================
+
+Same bookmarklet works in Chrome! Just:
+1. Right-click bookmarks bar
+2. Add page
+3. Name: Fill Form
+4. URL: paste the bookmarklet code above
+5. Save
+
+================================================================================

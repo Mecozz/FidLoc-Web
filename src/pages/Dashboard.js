@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db, functions } from '../firebase';
+import { db, functions, auth, EmailAuthProvider, linkWithCredential } from '../firebase';
+import { sendPasswordResetEmail } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
 import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, Timestamp, orderBy, limit, setDoc, writeBatch, getDocs } from 'firebase/firestore';
-import { MapPin, LogOut, Navigation, Copy, Search, Plus, X, Share2, List, Map as MapIcon, Wifi, WifiOff, RefreshCw, Edit2, Trash2, History, RotateCcw, Trash, Sun, Moon, Monitor, ExternalLink, Users, Settings, ChevronRight, Mail, UserPlus, Shield, UserMinus, Crown, Package, Building, ClipboardList, Camera, FileText, CheckCircle, XCircle, AlertTriangle, ScanLine, StopCircle, Ruler } from 'lucide-react';
+import { MapPin, LogOut, Navigation, Copy, Search, Plus, X, Share2, List, Map as MapIcon, Wifi, WifiOff, RefreshCw, Edit2, Trash2, History, RotateCcw, Trash, Sun, Moon, Monitor, ExternalLink, Users, Settings, ChevronRight, Mail, UserPlus, Shield, UserMinus, Crown, Package, Building, ClipboardList, Camera, FileText, CheckCircle, XCircle, AlertTriangle, ScanLine, StopCircle, Ruler, Clock } from 'lucide-react';
+import TimeTracker from '../components/TimeTracker';
 import { useParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -52,6 +54,7 @@ export default function Dashboard() {
   const [showInventory, setShowInventory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showDropMeasure, setShowDropMeasure] = useState(false);
+  const [showTimeTracker, setShowTimeTracker] = useState(false);
   const [editingLocation, setEditingLocation] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [viewMode, setViewMode] = useState('list');
@@ -62,6 +65,67 @@ export default function Dashboard() {
   const [lastSynced, setLastSynced] = useState(new Date());
   const [theme, setTheme] = useState(themeManager.getTheme());
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [rateLimitMessage, setRateLimitMessage] = useState(null);
+
+  // Rate limiting for non-admin users
+  const RATE_LIMIT_STORAGE_KEY = 'fidloc_rate_limits';
+  const DELETE_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes
+  const EDIT_LIMIT = 5;
+  const EDIT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+  const getRateLimits = () => {
+    try { return JSON.parse(localStorage.getItem(RATE_LIMIT_STORAGE_KEY) || '{}'); } catch { return {}; }
+  };
+
+  const setRateLimits = (limits) => {
+    localStorage.setItem(RATE_LIMIT_STORAGE_KEY, JSON.stringify(limits));
+  };
+
+  const canDeleteNow = () => {
+    if (userRole === 'owner' || userRole === 'admin') return { allowed: true };
+    const limits = getRateLimits();
+    const lastDelete = limits.lastDelete || 0;
+    const now = Date.now();
+    const timeLeft = DELETE_COOLDOWN_MS - (now - lastDelete);
+    if (timeLeft > 0) {
+      const mins = Math.floor(timeLeft / 60000);
+      const secs = Math.floor((timeLeft % 60000) / 1000);
+      return { allowed: false, message: `You can delete again in ${mins}:${secs.toString().padStart(2, '0')}` };
+    }
+    return { allowed: true };
+  };
+
+  const recordDelete = () => {
+    if (userRole === 'owner' || userRole === 'admin') return;
+    const limits = getRateLimits();
+    limits.lastDelete = Date.now();
+    setRateLimits(limits);
+  };
+
+  const canEditNow = () => {
+    if (userRole === 'owner' || userRole === 'admin') return { allowed: true };
+    const limits = getRateLimits();
+    const now = Date.now();
+    const editTimes = (limits.editTimes || []).filter(t => now - t < EDIT_WINDOW_MS);
+    if (editTimes.length >= EDIT_LIMIT) {
+      const oldestEdit = Math.min(...editTimes);
+      const timeLeft = EDIT_WINDOW_MS - (now - oldestEdit);
+      const mins = Math.floor(timeLeft / 60000);
+      const secs = Math.floor((timeLeft % 60000) / 1000);
+      return { allowed: false, message: `Edit limit reached. Try again in ${mins}:${secs.toString().padStart(2, '0')}` };
+    }
+    return { allowed: true };
+  };
+
+  const recordEdit = () => {
+    if (userRole === 'owner' || userRole === 'admin') return;
+    const limits = getRateLimits();
+    const now = Date.now();
+    const editTimes = (limits.editTimes || []).filter(t => now - t < EDIT_WINDOW_MS);
+    editTimes.push(now);
+    limits.editTimes = editTimes;
+    setRateLimits(limits);
+  };
 
   const canEdit = userRole === 'owner' || userRole === 'admin' || userRole === 'contributor';
   const canDelete = userRole === 'owner' || userRole === 'admin';
@@ -75,8 +139,38 @@ export default function Dashboard() {
   useEffect(() => { if (!userOrg) { setLoading(false); return; } const q = query(collection(db, 'organizations', userOrg, 'locations')); return onSnapshot(q, (snap) => { const locs = snap.docs.map(d => ({ id: d.id, ...d.data() })); setLocations(locs); setLoading(false); setLastSynced(new Date()); if (locationId) { const found = locs.find(l => l.id === locationId); if (found) setSelectedLocation(found); } }, () => setLoading(false)); }, [userOrg, locationId]);
 
   const handleManualSync = async () => { if (!isOnline || syncing) return; setSyncing(true); try { await offlineQueue.syncQueue(); setLastSynced(new Date()); } catch {} setSyncing(false); };
-  const handleEdit = (loc) => { setEditingLocation(loc); setShowEditModal(true); };
-  const handleDelete = async (loc) => { if (!canDelete) return; try { const trashData = { ...loc, deletedBy: user?.email, deletedAt: Timestamp.now(), originalId: loc.id }; delete trashData.id; await setDoc(doc(db, 'organizations', userOrg, 'trash', loc.id), trashData); await deleteDoc(doc(db, 'organizations', userOrg, 'locations', loc.id)); await logActivity(userOrg, 'deleted', loc.name, user?.email, { deletedLocation: { name: loc.name, address: loc.address, locationType: loc.locationType } }); setDeleteConfirm(null); setSelectedLocation(null); } catch (err) { console.error('Delete failed:', err); } };
+  const handleEdit = (loc) => {
+    const editCheck = canEditNow();
+    if (!editCheck.allowed) {
+      setRateLimitMessage(editCheck.message);
+      setTimeout(() => setRateLimitMessage(null), 4000);
+      return;
+    }
+    setEditingLocation(loc);
+    setShowEditModal(true);
+  };
+  const handleDelete = async (loc) => {
+    if (!canDelete) return;
+    const deleteCheck = canDeleteNow();
+    if (!deleteCheck.allowed) {
+      setRateLimitMessage(deleteCheck.message);
+      setTimeout(() => setRateLimitMessage(null), 4000);
+      setDeleteConfirm(null);
+      return;
+    }
+    try {
+      const trashData = { ...loc, deletedBy: user?.email, deletedAt: Timestamp.now(), originalId: loc.id };
+      delete trashData.id;
+      await setDoc(doc(db, 'organizations', userOrg, 'trash', loc.id), trashData);
+      await deleteDoc(doc(db, 'organizations', userOrg, 'locations', loc.id));
+      await logActivity(userOrg, 'deleted', loc.name, user?.email, { deletedLocation: { name: loc.name, address: loc.address, locationType: loc.locationType } });
+      recordDelete();
+      setDeleteConfirm(null);
+      setSelectedLocation(null);
+    } catch (err) {
+      console.error('Delete failed:', err);
+    }
+  };
   const handleShowOnMap = (loc) => { if (loc.latitude && loc.longitude) { setMapFocusLocation(loc); setViewMode('map'); } };
   const getDistanceText = (loc) => { if (!userLocation || !loc.latitude || !loc.longitude) return null; const dist = calculateDistance(userLocation.lat, userLocation.lng, loc.latitude, loc.longitude); return dist < 0.1 ? '< 0.1 mi' : dist < 10 ? dist.toFixed(1) + ' mi' : Math.round(dist) + ' mi'; };
   const allLocations = [...locations, ...pendingLocations.map(p => ({ ...p, isPending: true, id: p.pendingId }))];
@@ -100,7 +194,7 @@ export default function Dashboard() {
         <div className="menu-section"><div className="menu-section-title">Appearance</div><div className="theme-selector"><button onClick={() => setThemeMode('light')} className={`theme-option ${theme === 'light' ? 'active' : ''}`}><Sun size={18} /><span>Light</span></button><button onClick={() => setThemeMode('dark')} className={`theme-option ${theme === 'dark' ? 'active' : ''}`}><Moon size={18} /><span>Dark</span></button><button onClick={() => setThemeMode('system')} className={`theme-option ${theme === 'system' ? 'active' : ''}`}><Monitor size={18} /><span>Auto</span></button></div></div>
         {canViewActivityLog && (<div className="menu-section"><div className="menu-section-title">Administration</div><button onClick={() => { setShowActivityLog(true); setShowMenu(false); }} className="menu-item"><History size={20} /><span>Activity Log</span><ChevronRight size={18} /></button>{userRole === 'owner' && (<button onClick={() => { setShowTrash(true); setShowMenu(false); }} className="menu-item"><Trash size={20} /><span>Trash</span><ChevronRight size={18} /></button>)}<button onClick={() => { setShowTeamMembers(true); setShowMenu(false); }} className="menu-item"><Users size={20} /><span>Team Members</span><ChevronRight size={18} /></button></div>)}
         {canViewActivityLog && (<div className="menu-section"><div className="menu-section-title">Inventory</div><button onClick={() => { setShowInventory(true); setShowMenu(false); }} className="menu-item"><ClipboardList size={20} /><span>My Inventory</span><ChevronRight size={18} /></button><button onClick={() => { setShowEquipmentOrders(true); setShowMenu(false); }} className="menu-item"><Package size={20} /><span>Equipment Orders</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u&route=shorturl')} className="menu-item"><ExternalLink size={20} /><span>Inventory Corrections</span><ChevronRight size={18} /></button></div>)}
-        <div className="menu-section"><div className="menu-section-title">Quick Links</div><button onClick={() => { setShowDropMeasure(true); setShowMenu(false); }} className="menu-item"><Ruler size={20} /><span>Drop Measure</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://cnslonline.sharepoint.com/sites/Intranet')} className="menu-item"><Building size={20} /><span>Intranet-Home</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://fairpoint.etadirect.com')} className="menu-item"><ExternalLink size={20} /><span>Oracle</span><ChevronRight size={18} /></button><button onClick={() => { setShowSettings(true); setShowMenu(false); }} className="menu-item"><Settings size={20} /><span>Settings</span><ChevronRight size={18} /></button></div>
+        <div className="menu-section"><div className="menu-section-title">Quick Links</div><button onClick={() => { setShowDropMeasure(true); setShowMenu(false); }} className="menu-item"><Ruler size={20} /><span>Drop Measure</span><ChevronRight size={18} /></button><button onClick={() => { setShowTimeTracker(true); setShowMenu(false); }} className="menu-item"><Clock size={20} /><span>Time Tracker</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://cnslonline.sharepoint.com/sites/Intranet')} className="menu-item"><Building size={20} /><span>Intranet-Home</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://fairpoint.etadirect.com')} className="menu-item"><ExternalLink size={20} /><span>Oracle</span><ChevronRight size={18} /></button><button onClick={() => { setShowSettings(true); setShowMenu(false); }} className="menu-item"><Settings size={20} /><span>Settings</span><ChevronRight size={18} /></button></div>
         <div className="menu-section"><div className="menu-section-title">Requires VPN</div><button onClick={() => openExternalLink('http://resolve.consolidated.com/resolve/sir/index.html')} className="menu-item"><ExternalLink size={20} /><span>Resolve</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://consolidated.okta.com')} className="menu-item"><ExternalLink size={20} /><span>My Apps Dashboard</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://netcracker.consolidated.com/cci_custom/jumpStart.jsp')} className="menu-item"><ExternalLink size={20} /><span>Netcracker</span><ChevronRight size={18} /></button></div>
         <div className="menu-section"><div className="menu-section-title">VPN Setup</div><button onClick={() => { const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent); const isAndroid = /Android/.test(navigator.userAgent); if (isIOS || isAndroid) { let appOpened = false; const handleBlur = () => { appOpened = true; }; window.addEventListener('blur', handleBlur); window.location.href = 'anyconnect://'; setTimeout(() => { window.removeEventListener('blur', handleBlur); if (!appOpened && !document.hidden) { if (window.confirm('Open AnyConnect? If not installed, you can download it.')) { if (isIOS) window.open('https://apps.apple.com/app/cisco-secure-client/id1135064690', '_blank'); else window.open('https://play.google.com/store/apps/details?id=com.cisco.anyconnect.vpn.android.avf', '_blank'); } } }, 2500); } else { window.open('https://remote-nh1.consolidated.com/+CSCOE+/logon.html#form_title_text', '_blank'); } }} className="menu-item"><Shield size={20} /><span>AnyConnect VPN</span><ChevronRight size={18} /></button><div className="help-info"><div className="help-item"><strong>Server Address:</strong><br/>remote-nh1.consolidated.com/Employees</div></div></div>
         <div className="menu-footer"><button onClick={logout} className="menu-logout"><LogOut size={20} /><span>Sign Out</span></button><div className="menu-version">FidLoc v1.0</div></div>
@@ -120,7 +214,7 @@ export default function Dashboard() {
       {viewMode === 'list' && (<div className="locations-list">{loading ? <div className="loading"><div className="spinner"></div><p>Loading...</p></div> : filteredLocations.length === 0 ? <div className="empty-state"><MapPin size={48} /><p>No locations found</p></div> : filteredLocations.map(loc => (<LocationCard key={loc.id} location={loc} distance={getDistanceText(loc)} onNavigate={handleNavigate} onCopyAddress={handleCopyAddress} onShare={handleShareLocation} onEdit={handleEdit} onDelete={(l) => setDeleteConfirm(l)} onShowOnMap={handleShowOnMap} isSelected={selectedLocation?.id === loc.id} onSelect={() => setSelectedLocation(selectedLocation?.id === loc.id ? null : loc)} copied={copied} linkCopied={linkCopied} isDuplicate={allLocations.filter(l => l.name?.toLowerCase() === loc.name?.toLowerCase() && normalizeType(l.locationType) === normalizeType(loc.locationType)).length > 1} canEdit={canEdit} canDelete={canDelete} canViewMeta={canViewActivityLog} />))}</div>)}
 
       {showAddModal && <AddLocationModal userOrg={userOrg} userEmail={user?.email} onClose={() => setShowAddModal(false)} existingLocations={allLocations} isOnline={isOnline} />}
-      {showEditModal && editingLocation && <EditLocationModal location={editingLocation} userOrg={userOrg} userEmail={user?.email} onClose={() => { setShowEditModal(false); setEditingLocation(null); }} isOnline={isOnline} />}
+      {showEditModal && editingLocation && <EditLocationModal location={editingLocation} userOrg={userOrg} userEmail={user?.email} onClose={() => { setShowEditModal(false); setEditingLocation(null); }} onSaveSuccess={recordEdit} isOnline={isOnline} />}
       {showActivityLog && <ActivityLogModal userOrg={userOrg} userRole={userRole} onClose={() => setShowActivityLog(false)} />}
       {showTrash && <TrashModal userOrg={userOrg} userEmail={user?.email} onClose={() => setShowTrash(false)} />}
       {showTeamMembers && <TeamMembersModal userOrg={userOrg} userEmail={user?.email} userRole={userRole} currentUserId={user?.uid} onClose={() => setShowTeamMembers(false)} />}
@@ -128,7 +222,9 @@ export default function Dashboard() {
       {showInventory && <InventoryModal userId={user?.uid} onClose={() => setShowInventory(false)} />}
       {showSettings && <SettingsModal user={user} locations={locations} onClose={() => setShowSettings(false)} />}
       {showDropMeasure && <DropMeasureModal onClose={() => setShowDropMeasure(false)} />}
+      {showTimeTracker && <TimeTracker userId={user?.uid} onClose={() => setShowTimeTracker(false)} />}
       {deleteConfirm && <DeleteConfirmModal location={deleteConfirm} onConfirm={() => handleDelete(deleteConfirm)} onCancel={() => setDeleteConfirm(null)} />}
+      {rateLimitMessage && <div className="rate-limit-toast">{rateLimitMessage}</div>}
     </div>
   );
 }
@@ -152,9 +248,9 @@ function AddLocationModal({ userOrg, userEmail, onClose, existingLocations, isOn
   return (<div className="modal-overlay"><div className="modal"><div className="modal-header"><h2>Add Location</h2>{!isOnline && <span className="offline-indicator"><WifiOff size={16} /> Offline</span>}<button onClick={onClose} className="close-button"><X size={24} /></button></div><form onSubmit={submit} className="modal-form">{!isOnline && <div className="offline-notice">Offline - will sync later</div>}{error && <div className="error-message">{error}</div>}{warning && <div className="warning-message">{warning}</div>}<div className="form-group"><label>Name *</label><input value={name} onChange={e => { const upperName = e.target.value.toUpperCase(); setName(upperName); checkDupes(upperName, address, null, null, locationType); }} required /></div><div className="form-group"><label>Type *</label><select value={locationType} onChange={e => { setLocationType(e.target.value); checkDupes(name, address, coords.lat, coords.lng, e.target.value); }} required><option value="">-- Select --</option>{FILTER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div><div className="form-group"><label>Address *</label><input value={address} onChange={e => { setAddress(e.target.value); setUseCurrentLocation(false); checkDupes(name, e.target.value, null, null, locationType); }} required /><div className="location-buttons"><button type="button" onClick={getGPS} className="location-btn" disabled={loading}>📍 GPS</button><button type="button" onClick={() => setShowManualCoords(!showManualCoords)} className="location-btn">✏️ Coords</button></div>{showManualCoords && <div className="manual-coords"><input value={manualCoordsInput} onChange={e => setManualCoordsInput(e.target.value)} placeholder="42.98, -71.45" /><button type="button" onClick={parseCoords} className="parse-btn">Set</button></div>}{useCurrentLocation && coords.lat && <div className="coords-captured">✅ {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}</div>}</div>{locationType === 'Hub' && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={requiresLadder} onChange={e => setRequiresLadder(e.target.checked)} /> 🪜 Requires Ladder</label>{requiresLadder && <label className="checkbox-label"><input type="checkbox" checked={hasLadderBracket} onChange={e => setHasLadderBracket(e.target.checked)} /> Has Bracket</label>}</div>}{(locationType === 'CO' || locationType === 'Garage') && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={hasBathroom} onChange={e => setHasBathroom(e.target.checked)} /> 🚻 Has Bathroom</label></div>}<div className="form-group"><label>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} /></div><div className="modal-actions"><button type="button" onClick={onClose} className="cancel-button">Cancel</button><button type="submit" disabled={loading || isBlocked} className="submit-button">{loading ? 'Saving...' : 'Add'}</button></div></form></div></div>);
 }
 
-function EditLocationModal({ location, userOrg, userEmail, onClose, isOnline }) {
+function EditLocationModal({ location, userOrg, userEmail, onClose, onSaveSuccess, isOnline }) {
   const [name, setName] = useState((location.name || '').toUpperCase()); const [address, setAddress] = useState(location.address || ''); const [locationType, setLocationType] = useState(location.locationType || 'Hub'); const [notes, setNotes] = useState(location.notes || ''); const [requiresLadder, setRequiresLadder] = useState(location.requiresLadder || false); const [hasLadderBracket, setHasLadderBracket] = useState(location.hasLadderBracket || false); const [hasBathroom, setHasBathroom] = useState(location.hasBathroom || false); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
-  const submit = async (e) => { e.preventDefault(); if (!isOnline) { setError('Must be online to edit'); return; } setLoading(true); setError(''); var changes = []; if (name !== location.name) changes.push({ field: 'name', before: location.name, after: name }); if (address !== location.address) changes.push({ field: 'address', before: location.address, after: address }); if (locationType !== location.locationType) changes.push({ field: 'type', before: location.locationType, after: locationType }); if (notes !== (location.notes || '')) changes.push({ field: 'notes', before: location.notes || '(empty)', after: notes || '(empty)' }); if (requiresLadder !== location.requiresLadder) changes.push({ field: 'requiresLadder', before: location.requiresLadder ? 'Yes' : 'No', after: requiresLadder ? 'Yes' : 'No' }); if (hasLadderBracket !== location.hasLadderBracket) changes.push({ field: 'hasLadderBracket', before: location.hasLadderBracket ? 'Yes' : 'No', after: hasLadderBracket ? 'Yes' : 'No' }); if (hasBathroom !== location.hasBathroom) changes.push({ field: 'hasBathroom', before: location.hasBathroom ? 'Yes' : 'No', after: hasBathroom ? 'Yes' : 'No' }); if (!changes.length) { onClose(); return; } try { await updateDoc(doc(db, 'organizations', userOrg, 'locations', location.id), { name, address, locationType, notes, requiresLadder: locationType === 'Hub' ? requiresLadder : false, hasLadderBracket: locationType === 'Hub' ? hasLadderBracket : false, hasBathroom: (locationType === 'CO' || locationType === 'Garage') ? hasBathroom : false, lastModified: Timestamp.now(), lastModifiedBy: userEmail }); await logActivity(userOrg, 'edited', name, userEmail, changes); onClose(); } catch { setError('Failed to save'); } setLoading(false); };
+  const submit = async (e) => { e.preventDefault(); if (!isOnline) { setError('Must be online to edit'); return; } setLoading(true); setError(''); var changes = []; if (name !== location.name) changes.push({ field: 'name', before: location.name, after: name }); if (address !== location.address) changes.push({ field: 'address', before: location.address, after: address }); if (locationType !== location.locationType) changes.push({ field: 'type', before: location.locationType, after: locationType }); if (notes !== (location.notes || '')) changes.push({ field: 'notes', before: location.notes || '(empty)', after: notes || '(empty)' }); if (requiresLadder !== location.requiresLadder) changes.push({ field: 'requiresLadder', before: location.requiresLadder ? 'Yes' : 'No', after: requiresLadder ? 'Yes' : 'No' }); if (hasLadderBracket !== location.hasLadderBracket) changes.push({ field: 'hasLadderBracket', before: location.hasLadderBracket ? 'Yes' : 'No', after: hasLadderBracket ? 'Yes' : 'No' }); if (hasBathroom !== location.hasBathroom) changes.push({ field: 'hasBathroom', before: location.hasBathroom ? 'Yes' : 'No', after: hasBathroom ? 'Yes' : 'No' }); if (!changes.length) { onClose(); return; } try { await updateDoc(doc(db, 'organizations', userOrg, 'locations', location.id), { name, address, locationType, notes, requiresLadder: locationType === 'Hub' ? requiresLadder : false, hasLadderBracket: locationType === 'Hub' ? hasLadderBracket : false, hasBathroom: (locationType === 'CO' || locationType === 'Garage') ? hasBathroom : false, lastModified: Timestamp.now(), lastModifiedBy: userEmail }); await logActivity(userOrg, 'edited', name, userEmail, changes); if (onSaveSuccess) onSaveSuccess(); onClose(); } catch { setError('Failed to save'); } setLoading(false); };
   return (<div className="modal-overlay"><div className="modal"><div className="modal-header"><h2>Edit Location</h2><button onClick={onClose} className="close-button"><X size={24} /></button></div><form onSubmit={submit} className="modal-form">{error && <div className="error-message">{error}</div>}{!isOnline && <div className="error-message">Must be online to edit</div>}<div className="form-group"><label>Name *</label><input value={name} onChange={e => setName(e.target.value.toUpperCase())} required /></div><div className="form-group"><label>Type *</label><select value={locationType} onChange={e => setLocationType(e.target.value)} required>{FILTER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div><div className="form-group"><label>Address *</label><input value={address} onChange={e => setAddress(e.target.value)} required /></div>{locationType === 'Hub' && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={requiresLadder} onChange={e => setRequiresLadder(e.target.checked)} /> 🪜 Requires Ladder</label>{requiresLadder && <label className="checkbox-label"><input type="checkbox" checked={hasLadderBracket} onChange={e => setHasLadderBracket(e.target.checked)} /> Has Bracket</label>}</div>}{(locationType === 'CO' || locationType === 'Garage') && <div className="checkbox-group"><label className="checkbox-label"><input type="checkbox" checked={hasBathroom} onChange={e => setHasBathroom(e.target.checked)} /> 🚻 Has Bathroom</label></div>}<div className="form-group"><label>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} /></div><div className="modal-actions"><button type="button" onClick={onClose} className="cancel-button">Cancel</button><button type="submit" disabled={loading || !isOnline} className="submit-button">{loading ? 'Saving...' : 'Save Changes'}</button></div></form></div></div>);
 }
 
@@ -195,7 +291,9 @@ function TeamMembersModal({ userOrg, userEmail, userRole, currentUserId, onClose
   useEffect(() => {
     const membersQuery = query(collection(db, 'organizations', userOrg, 'members'));
     const unsubMembers = onSnapshot(membersQuery, (snap) => {
-      setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const loadedMembers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      console.log('Loaded members:', loadedMembers.map(m => ({ id: m.id, email: m.email, role: m.role })));
+      setMembers(loadedMembers);
       setLoading(false);
     }, (err) => {
       console.error('Members load error:', err);
@@ -222,7 +320,9 @@ function TeamMembersModal({ userOrg, userEmail, userRole, currentUserId, onClose
       if (existingMember) { setError('This person is already a member.'); setSending(false); return; }
       const existingInvite = invites.find(i => i.email?.toLowerCase() === inviteEmail.toLowerCase());
       if (existingInvite) { setError('An invite is already pending for this email.'); setSending(false); return; }
-      await addDoc(collection(db, 'invites'), { email: inviteEmail.toLowerCase().trim(), role: inviteRole, organizationId: userOrg, invitedBy: userEmail, status: 'pending', createdAt: Timestamp.now() });
+      const newInviteRef = await addDoc(collection(db, 'invites'), { email: inviteEmail.toLowerCase().trim(), role: inviteRole, organizationId: userOrg, invitedBy: userEmail, status: 'pending', createdAt: Timestamp.now() });
+      // Immediately add to local state for instant UI update
+      setInvites(prev => [...prev, { id: newInviteRef.id, email: inviteEmail.toLowerCase().trim(), role: inviteRole, organizationId: userOrg, invitedBy: userEmail, status: 'pending', createdAt: new Date() }]);
       setInviteEmail('');
       setShowInviteForm(false);
     } catch (err) {
@@ -236,6 +336,8 @@ function TeamMembersModal({ userOrg, userEmail, userRole, currentUserId, onClose
     setCancelingInvite(inviteId);
     try {
       await deleteDoc(doc(db, 'invites', inviteId));
+      // Immediately remove from local state (onSnapshot should also catch this, but this ensures instant UI update)
+      setInvites(prev => prev.filter(inv => inv.id !== inviteId));
     } catch (err) {
       console.error('Cancel invite failed:', err);
       setError('Failed to cancel invite.');
@@ -244,13 +346,20 @@ function TeamMembersModal({ userOrg, userEmail, userRole, currentUserId, onClose
   };
 
   const changeRole = async (memberId, newRole) => {
+    console.log('changeRole called:', { memberId, newRole, isOwner, userOrg });
     if (!isOwner) return;
     setChangingRole(memberId);
+    setError('');
     try {
-      await updateDoc(doc(db, 'organizations', userOrg, 'members', memberId), { role: newRole });
+      const memberRef = doc(db, 'organizations', userOrg, 'members', memberId);
+      console.log('Updating member at path:', memberRef.path);
+      await updateDoc(memberRef, { role: newRole });
+      console.log('Firestore updated successfully');
+      // Immediately update local state
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m));
     } catch (err) {
       console.error('Change role failed:', err);
-      setError('Failed to change role.');
+      setError('Failed to change role: ' + err.message);
     }
     setChangingRole(null);
   };
@@ -263,6 +372,8 @@ function TeamMembersModal({ userOrg, userEmail, userRole, currentUserId, onClose
       console.log('Removing member:', member.id, member.email);
       await deleteDoc(doc(db, 'organizations', userOrg, 'members', member.id));
       console.log('Member removed successfully');
+      // Immediately remove from local state
+      setMembers(prev => prev.filter(m => m.id !== member.id));
       setConfirmRemove(null);
     } catch (err) {
       console.error('Remove member failed:', err);
@@ -1065,35 +1176,57 @@ function InventoryModal({ userId, onClose }) {
 
           {activeTab === 'submit' && (
             <div className="inv-submit">
-              <div className="submit-serial-bar">
-                <div className="serial-scroll">
+              <div className="submit-instructions">
+                <h3>📋 Report Missing Equipment</h3>
+                <p>Tap a serial to copy, then paste into the form.</p>
+              </div>
+
+              <div className="missing-serials-box">
+                <div className="serials-header">
+                  <span>Missing ({comparison.missing.length})</span>
+                  <button 
+                    onClick={() => {
+                      const serials = comparison.missing.map(i => i.serial).join('\n');
+                      navigator.clipboard.writeText(serials);
+                      playBeep(true);
+                      alert('Copied ' + comparison.missing.length + ' serials!');
+                    }}
+                    className="copy-all-btn"
+                  >
+                    📋 Copy All
+                  </button>
+                </div>
+                <div className="serials-list-mobile">
                   {comparison.missing.map((item, idx) => (
                     <button 
-                      key={idx}
-                      className={`serial-chip ${copiedSerials.has(item.serial) ? 'done' : ''} ${lastCopied === item.serial ? 'just-copied' : ''}`}
+                      key={idx} 
+                      className={`serial-row-btn ${copiedSerials.has(item.serial) ? 'copied' : ''}`}
                       onClick={() => {
                         navigator.clipboard.writeText(item.serial);
                         setCopiedSerials(prev => new Set([...prev, item.serial]));
-                        setLastCopied(item.serial);
                         playBeep(true);
-                        setTimeout(() => setLastCopied(null), 1500);
                       }}
                     >
-                      {copiedSerials.has(item.serial) ? '✓' : ''} {item.serial.slice(-6)}
+                      <span className="serial-text">{item.serial}</span>
+                      <span className="copy-indicator">{copiedSerials.has(item.serial) ? '✓' : '📋'}</span>
                     </button>
                   ))}
                 </div>
-                <div className="serial-progress">{copiedSerials.size}/{comparison.missing.length}</div>
+                <div className="copy-progress">
+                  {copiedSerials.size} of {comparison.missing.length} copied
+                </div>
               </div>
-              <div className="form-embed-container">
-                <iframe 
-                  src="https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u&embed=true"
-                  title="Inventory Correction Form"
-                  className="embedded-form"
-                  frameBorder="0"
-                  allowFullScreen
-                />
-              </div>
+
+              <button 
+                onClick={() => window.open('https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u', '_blank')}
+                className="open-form-btn"
+              >
+                🌐 Open Inventory Form
+              </button>
+              
+              <p className="extension-hint">
+                On desktop? Use the <a href="https://chrome.google.com/webstore/detail/fidloc-ms-forms-filler/edhengdfeoehfecdljhonmkghkdlkcee" target="_blank" rel="noopener noreferrer">Chrome extension</a> for faster entry.
+              </p>
             </div>
           )}
         </div>
@@ -1105,7 +1238,56 @@ function InventoryModal({ userId, onClose }) {
 
 function SettingsModal({ user, locations, onClose }) {
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showSetPassword, setShowSetPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [settingPassword, setSettingPassword] = useState(false);
+  
   useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = ''; }; }, []);
+
+  // Check if user has password auth linked
+  const hasPasswordAuth = user?.providerData?.some(p => p.providerId === 'password');
+  const hasAppleAuth = user?.providerData?.some(p => p.providerId === 'apple.com');
+  const hasGoogleAuth = user?.providerData?.some(p => p.providerId === 'google.com');
+
+  const handleSetPassword = async (e) => {
+    e.preventDefault();
+    setPasswordError('');
+    
+    if (newPassword.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return;
+    }
+    
+    setSettingPassword(true);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, newPassword);
+      await linkWithCredential(auth.currentUser, credential);
+      setPasswordSuccess(true);
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => {
+        setShowSetPassword(false);
+        setPasswordSuccess(false);
+      }, 2000);
+    } catch (err) {
+      console.error('Link password error:', err);
+      if (err.code === 'auth/provider-already-linked') {
+        setPasswordError('You already have a password set for this account');
+      } else if (err.code === 'auth/requires-recent-login') {
+        setPasswordError('Please sign out and sign back in, then try again');
+      } else {
+        setPasswordError(err.message || 'Failed to set password');
+      }
+    }
+    setSettingPassword(false);
+  };
 
   const exportCSV = () => {
     if (!locations || locations.length === 0) { alert('No locations to export'); return; }
@@ -1217,8 +1399,28 @@ function SettingsModal({ user, locations, onClose }) {
                   <span className="settings-label">Email</span>
                   <span className="settings-value">{user?.email}</span>
                 </div>
-                <button className="settings-btn disabled" disabled>Change Password</button>
-                <button className="settings-btn disabled" disabled>Update Profile Photo</button>
+                <div className="settings-item">
+                  <span className="settings-label">Sign-in Methods</span>
+                  <span className="settings-value">
+                    {hasAppleAuth && '🍎 Apple '}
+                    {hasGoogleAuth && '🔵 Google '}
+                    {hasPasswordAuth && '🔑 Password'}
+                    {!hasAppleAuth && !hasGoogleAuth && !hasPasswordAuth && 'Unknown'}
+                  </span>
+                </div>
+                {!hasPasswordAuth && (hasAppleAuth || hasGoogleAuth) && (
+                  <button onClick={() => setShowSetPassword(true)} className="settings-btn">Set Password for Web Login</button>
+                )}
+                {hasPasswordAuth && (
+                  <button onClick={async () => {
+                    try {
+                      await sendPasswordResetEmail(auth, user.email);
+                      alert('Password reset email sent! Check your inbox.');
+                    } catch (err) {
+                      alert('Failed to send reset email: ' + err.message);
+                    }
+                  }} className="settings-btn">Reset Password</button>
+                )}
               </div>
 
               <div className="settings-section">
@@ -1279,6 +1481,38 @@ function SettingsModal({ user, locations, onClose }) {
 
         </div>
       </div>
+      
+      {showSetPassword && (
+        <div className="confirm-overlay" onClick={() => setShowSetPassword(false)}>
+          <div className="confirm-dialog" style={{ maxWidth: '350px' }} onClick={e => e.stopPropagation()}>
+            <h3>🔑 Set Password</h3>
+            <p style={{ marginBottom: '16px', color: '#888', fontSize: '13px' }}>
+              Create a password to sign in on the web without Apple/Google.
+            </p>
+            {passwordSuccess ? (
+              <div style={{ color: '#22c55e', textAlign: 'center', padding: '20px' }}>
+                ✅ Password set successfully!<br/>You can now sign in with email & password.
+              </div>
+            ) : (
+              <form onSubmit={handleSetPassword}>
+                {passwordError && <div style={{ color: '#ef4444', marginBottom: '12px', fontSize: '13px' }}>{passwordError}</div>}
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '4px' }}>New Password</label>
+                  <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="At least 6 characters" style={{ width: '100%', padding: '10px', background: '#0f0f23', border: '1px solid #333', borderRadius: '6px', color: '#fff' }} required minLength={6} />
+                </div>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '4px' }}>Confirm Password</label>
+                  <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Confirm password" style={{ width: '100%', padding: '10px', background: '#0f0f23', border: '1px solid #333', borderRadius: '6px', color: '#fff' }} required />
+                </div>
+                <div className="confirm-actions">
+                  <button type="button" onClick={() => { setShowSetPassword(false); setPasswordError(''); setNewPassword(''); setConfirmPassword(''); }} className="cancel-button">Cancel</button>
+                  <button type="submit" disabled={settingPassword} className="submit-button">{settingPassword ? 'Setting...' : 'Set Password'}</button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

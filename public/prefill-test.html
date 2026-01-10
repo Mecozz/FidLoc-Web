@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MS Forms Pre-Fill URL Generator</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 { color: #00d4ff; font-size: 1.5em; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.9em; }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            background: #16213e;
+            color: #fff;
+            font-size: 16px;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4ff, #0099ff);
+            color: #000;
+        }
+        .btn-secondary {
+            background: #333;
+            color: #fff;
+        }
+        .url-output {
+            background: #0f0f23;
+            padding: 15px;
+            border-radius: 8px;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+            border: 1px solid #333;
+        }
+        .note {
+            background: #2a2a4a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-size: 0.9em;
+            border-left: 3px solid #ff9800;
+        }
+        .success { border-left-color: #4caf50; }
+    </style>
+</head>
+<body>
+    <h1>⚡ MS Forms Pre-Fill URL Generator</h1>
+    
+    <div class="form-group">
+        <label>Technician Name</label>
+        <input type="text" id="techName" value="Darren Couturier">
+    </div>
+    
+    <div class="form-group">
+        <label>Garage</label>
+        <select id="garage">
+            <option value="Concord">Concord</option>
+            <option value="Manchester">Manchester</option>
+            <option value="Nashua">Nashua</option>
+            <option value="Portsmouth">Portsmouth</option>
+        </select>
+    </div>
+    
+    <div class="form-group">
+        <label>Serial Number</label>
+        <input type="text" id="serial" placeholder="Enter serial number">
+    </div>
+    
+    <div class="form-group">
+        <label>Equipment Status</label>
+        <select id="status">
+            <option value="Missing">Missing</option>
+            <option value="Found">Found</option>
+            <option value="Damaged">Damaged</option>
+        </select>
+    </div>
+    
+    <button class="btn-primary" onclick="generateAndOpen()">Generate & Open Form</button>
+    <button class="btn-secondary" onclick="copyUrl()">Copy URL</button>
+    
+    <div class="url-output" id="urlOutput">URL will appear here...</div>
+    
+    <div class="note">
+        <strong>⚠️ Important:</strong> This uses the native MS Forms pre-fill URL format. 
+        If fields don't auto-fill, the form owner needs to enable "Pre-filled answers" in form settings.
+    </div>
+    
+    <div class="note success" style="margin-top: 10px;">
+        <strong>✅ How it works:</strong> Each field has a question ID. The URL appends 
+        <code>&r[questionID]=value</code> for each field to pre-populate.
+    </div>
+
+    <script>
+        // Your form's question IDs (from the transcript)
+        const FORM_BASE = 'https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u';
+        
+        const QUESTION_IDS = {
+            technicianName: 'rda892478c0b741ecb670fda088fcbc7b',
+            garage: 'r8076010f6735476abb0af5bfb040117e',
+            serialNumber: 'rfa582ebfb11e40f3bf00d8e0a9efbe9c',
+            equipmentStatus: 'r4eb635e098d24e8a8de3ed2331979cdb'
+        };
+        
+        function generateUrl() {
+            const techName = document.getElementById('techName').value;
+            const garage = document.getElementById('garage').value;
+            const serial = document.getElementById('serial').value;
+            const status = document.getElementById('status').value;
+            
+            let url = FORM_BASE;
+            
+            if (techName) url += `&${QUESTION_IDS.technicianName}=${encodeURIComponent(techName)}`;
+            if (garage) url += `&${QUESTION_IDS.garage}=${encodeURIComponent(garage)}`;
+            if (serial) url += `&${QUESTION_IDS.serialNumber}=${encodeURIComponent(serial)}`;
+            if (status) url += `&${QUESTION_IDS.equipmentStatus}=${encodeURIComponent(status)}`;
+            
+            document.getElementById('urlOutput').textContent = url;
+            return url;
+        }
+        
+        function generateAndOpen() {
+            const url = generateUrl();
+            window.open(url, '_blank');
+        }
+        
+        function copyUrl() {
+            const url = generateUrl();
+            navigator.clipboard.writeText(url).then(() => {
+                alert('URL copied to clipboard!');
+            });
+        }
+        
+        // Generate initial URL
+        generateUrl();
+        
+        // Update URL on any input change
+        document.querySelectorAll('input, select').forEach(el => {
+            el.addEventListener('input', generateUrl);
+            el.addEventListener('change', generateUrl);
+        });
+    </script>
+</body>
+</html>

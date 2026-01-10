@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>FidLoc Form Launcher</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            padding-top: 40px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+        .header p {
+            opacity: 0.7;
+            font-size: 14px;
+        }
+        .card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            opacity: 0.9;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 16px;
+            font-size: 18px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-family: monospace;
+            text-transform: uppercase;
+        }
+        input[type="text"]::placeholder {
+            color: rgba(255,255,255,0.4);
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #a78bfa;
+            background: rgba(255,255,255,0.15);
+        }
+        .btn {
+            width: 100%;
+            padding: 18px;
+            font-size: 18px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:active {
+            transform: scale(0.98);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+            color: white;
+            box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            margin-top: 12px;
+        }
+        .btn-paste {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 14px;
+            padding: 12px;
+            margin-top: 10px;
+        }
+        .recent {
+            margin-top: 30px;
+        }
+        .recent h3 {
+            font-size: 14px;
+            opacity: 0.7;
+            margin-bottom: 12px;
+        }
+        .recent-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .recent-chip {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-family: monospace;
+            cursor: pointer;
+        }
+        .recent-chip:active {
+            background: rgba(255,255,255,0.2);
+        }
+        .info {
+            text-align: center;
+            margin-top: 30px;
+            font-size: 12px;
+            opacity: 0.5;
+        }
+        .config {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .config-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            font-size: 14px;
+        }
+        .config-value {
+            font-family: monospace;
+            opacity: 0.7;
+        }
+        .status {
+            text-align: center;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .status.show { display: block; }
+        .status.success { background: rgba(16, 185, 129, 0.2); }
+        .status.error { background: rgba(239, 68, 68, 0.2); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 FidLoc Launcher</h1>
+            <p>Quick submit missing inventory</p>
+        </div>
+
+        <div class="card">
+            <div id="status" class="status"></div>
+            
+            <div class="form-group">
+                <label for="serial">Serial Number</label>
+                <input type="text" id="serial" placeholder="Enter or paste serial" autocomplete="off" autocorrect="off" autocapitalize="characters">
+                <button class="btn btn-paste" onclick="pasteFromClipboard()">📋 Paste from Clipboard</button>
+            </div>
+
+            <button class="btn btn-primary" onclick="openForm()">
+                <span>⚡</span> Open & Fill Form
+            </button>
+
+            <button class="btn btn-secondary" onclick="openFormDirect()">
+                Open Form (Manual Fill)
+            </button>
+
+            <div class="config">
+                <div class="config-row">
+                    <span>Technician</span>
+                    <span class="config-value" id="cfg-tech">Darren Couturier</span>
+                </div>
+                <div class="config-row">
+                    <span>Garage</span>
+                    <span class="config-value" id="cfg-garage">Concord</span>
+                </div>
+                <div class="config-row">
+                    <span>Status</span>
+                    <span class="config-value">Missing</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="recent" id="recent-section" style="display:none;">
+            <h3>Recent Serials</h3>
+            <div class="recent-list" id="recent-list"></div>
+        </div>
+
+        <div class="info">
+            <p>Requires Userscripts app with FidLoc script installed</p>
+            <p style="margin-top:8px;">v2.0 • Darren Couturier</p>
+        </div>
+    </div>
+
+    <script>
+        // MS Form URL
+        const FORM_URL = 'https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u';
+        
+        // Load recent serials
+        function loadRecent() {
+            try {
+                const recent = JSON.parse(localStorage.getItem('fidloc_recent_serials') || '[]');
+                if (recent.length > 0) {
+                    document.getElementById('recent-section').style.display = 'block';
+                    const list = document.getElementById('recent-list');
+                    list.innerHTML = recent.map(s => 
+                        `<button class="recent-chip" onclick="useRecent('${s}')">${s}</button>`
+                    ).join('');
+                }
+            } catch (e) {}
+        }
+
+        // Save to recent
+        function saveRecent(serial) {
+            try {
+                let recent = JSON.parse(localStorage.getItem('fidloc_recent_serials') || '[]');
+                recent = [serial, ...recent.filter(s => s !== serial)].slice(0, 10);
+                localStorage.setItem('fidloc_recent_serials', JSON.stringify(recent));
+            } catch (e) {}
+        }
+
+        // Use recent serial
+        function useRecent(serial) {
+            document.getElementById('serial').value = serial;
+        }
+
+        // Paste from clipboard
+        async function pasteFromClipboard() {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text && text.trim()) {
+                    document.getElementById('serial').value = text.trim().toUpperCase();
+                    showStatus('Pasted!', 'success');
+                }
+            } catch (e) {
+                showStatus('Clipboard access denied', 'error');
+            }
+        }
+
+        // Show status
+        function showStatus(msg, type) {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = 'status show ' + type;
+            setTimeout(() => { el.className = 'status'; }, 3000);
+        }
+
+        // Open form with serial parameter (userscript will auto-fill)
+        function openForm() {
+            const serial = document.getElementById('serial').value.trim().toUpperCase();
+            if (!serial) {
+                showStatus('Enter a serial number', 'error');
+                return;
+            }
+            
+            saveRecent(serial);
+            
+            // Open form with serial as URL parameter
+            // The userscript will detect this and auto-fill
+            const url = FORM_URL + '&serial=' + encodeURIComponent(serial);
+            window.open(url, '_blank');
+        }
+
+        // Open form without auto-fill
+        function openFormDirect() {
+            window.open(FORM_URL, '_blank');
+        }
+
+        // Init
+        loadRecent();
+        
+        // Focus input
+        document.getElementById('serial').focus();
+
+        // Handle Enter key
+        document.getElementById('serial').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') openForm();
+        });
+    </script>
+</body>
+</html>

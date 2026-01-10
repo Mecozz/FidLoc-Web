@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>FidLoc - Form Fill</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 500px;
+      width: 100%;
+      text-align: center;
+    }
+    
+    .logo {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+    
+    h1 {
+      color: #4ecdc4;
+      margin-bottom: 10px;
+      font-size: 24px;
+    }
+    
+    .subtitle {
+      color: #888;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+    
+    .info-card {
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      text-align: left;
+    }
+    
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .info-row:last-child {
+      border-bottom: none;
+    }
+    
+    .info-label {
+      color: #888;
+      font-size: 14px;
+    }
+    
+    .info-value {
+      color: #4ecdc4;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    
+    .serial-highlight {
+      background: #4ecdc4;
+      color: #1a1a2e;
+      padding: 15px 25px;
+      border-radius: 10px;
+      font-size: 24px;
+      font-weight: bold;
+      font-family: 'Monaco', 'Menlo', monospace;
+      margin: 20px 0;
+      display: inline-block;
+    }
+    
+    .status {
+      margin: 20px 0;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    
+    .status.loading {
+      background: rgba(78, 205, 196, 0.2);
+      color: #4ecdc4;
+    }
+    
+    .status.success {
+      background: rgba(46, 213, 115, 0.2);
+      color: #2ed573;
+    }
+    
+    .status.error {
+      background: rgba(255, 107, 107, 0.2);
+      color: #ff6b6b;
+    }
+    
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(78, 205, 196, 0.3);
+      border-radius: 50%;
+      border-top-color: #4ecdc4;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .btn {
+      display: inline-block;
+      padding: 15px 30px;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      margin: 10px 5px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .btn:active {
+      transform: scale(0.98);
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+      color: #1a1a2e;
+    }
+    
+    .btn-secondary {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+    }
+    
+    .instructions {
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 20px;
+      text-align: left;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    
+    .instructions h3 {
+      color: #4ecdc4;
+      margin-bottom: 15px;
+      font-size: 16px;
+    }
+    
+    .instructions ol {
+      padding-left: 20px;
+    }
+    
+    .instructions li {
+      margin-bottom: 10px;
+      color: #ccc;
+    }
+    
+    .copy-section {
+      margin-top: 20px;
+    }
+    
+    .copy-value {
+      background: #0d1117;
+      padding: 12px 15px;
+      border-radius: 8px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 14px;
+      margin: 10px 0;
+      word-break: break-all;
+      color: #4ecdc4;
+    }
+    
+    #formFrame {
+      width: 100%;
+      height: 0;
+      border: none;
+      border-radius: 12px;
+      overflow: hidden;
+      transition: height 0.3s ease;
+    }
+    
+    #formFrame.visible {
+      height: 600px;
+      margin-top: 20px;
+    }
+    
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">📋</div>
+    <h1>FidLoc Form Fill</h1>
+    <p class="subtitle">Auto-fill Microsoft Forms for inventory submissions</p>
+    
+    <div id="content">
+      <!-- Content will be injected by JavaScript -->
+    </div>
+  </div>
+
+  <script>
+    // Parse URL parameters
+    const params = new URLSearchParams(window.location.search);
+    const serial = params.get('serial') || '';
+    const name = params.get('name') || 'Darren Couturier';
+    const garage = params.get('garage') || 'Concord';
+    const status = params.get('status') || 'Missing';
+    const autoOpen = params.get('auto') !== 'false'; // Default true
+    
+    // Microsoft Form URL
+    const FORM_URL = 'https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u';
+    
+    // Question IDs
+    const QUESTION_IDS = {
+      technicianName: 'rda892478c0b741ecb670fda088fcbc7b',
+      garage: 'r8076010f6735476abb0af5bfb040117e',
+      serialNumber: 'rfa582ebfb11e40f3bf00d8e0a9efbe9c',
+      equipmentStatus: 'r4eb635e098d24e8a8de3ed2331979cdb',
+      notes: 'r3415631ba52f42dfaf88df455fadec32'
+    };
+    
+    const contentEl = document.getElementById('content');
+    
+    // Auto-fill script that will run on the form page
+    const AUTO_FILL_SCRIPT = `
+      (async function() {
+        const data = {
+          name: '${name.replace(/'/g, "\\'")}',
+          garage: '${garage.replace(/'/g, "\\'")}',
+          serial: '${serial.replace(/'/g, "\\'")}',
+          status: '${status.replace(/'/g, "\\'")}'
+        };
+        
+        const ids = {
+          n: '${QUESTION_IDS.technicianName}',
+          g: '${QUESTION_IDS.garage}',
+          s: '${QUESTION_IDS.serialNumber}',
+          e: '${QUESTION_IDS.equipmentStatus}'
+        };
+        
+        function setV(i, v) {
+          if (!i) return false;
+          const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          s.call(i, v);
+          i.dispatchEvent(new Event('input', { bubbles: true }));
+          i.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        }
+        
+        function find(id) {
+          let e = document.querySelector('input[aria-labelledby*="' + id + '"]');
+          if (e) return e;
+          e = document.querySelector('textarea[aria-labelledby*="' + id + '"]');
+          return e;
+        }
+        
+        function radio(v) {
+          const r = document.querySelectorAll('[role="radio"]');
+          for (const x of r) {
+            if ((x.textContent || '').includes(v)) {
+              x.click();
+              return true;
+            }
+          }
+          return false;
+        }
+        
+        // Wait for form to load
+        let attempts = 0;
+        while (!find(ids.n) && attempts < 50) {
+          await new Promise(r => setTimeout(r, 100));
+          attempts++;
+        }
+        
+        let filled = 0;
+        if (setV(find(ids.n), data.name)) filled++;
+        await new Promise(r => setTimeout(r, 50));
+        if (setV(find(ids.g), data.garage)) filled++;
+        await new Promise(r => setTimeout(r, 50));
+        if (setV(find(ids.s), data.serial)) filled++;
+        await new Promise(r => setTimeout(r, 50));
+        if (radio(data.status)) filled++;
+        
+        console.log('FidLoc Auto-Fill: ' + filled + '/4 fields filled');
+      })();
+    `;
+    
+    function showNoSerial() {
+      contentEl.innerHTML = `
+        <div class="status error">
+          ⚠️ No serial number provided
+        </div>
+        <p style="margin: 20px 0; color: #888;">
+          This page is used to auto-fill the Microsoft Form.<br>
+          It should be opened from FidLoc with a serial number.
+        </p>
+        <div class="instructions">
+          <h3>How to use:</h3>
+          <ol>
+            <li>Go to FidLoc web app</li>
+            <li>Go to the Compare or Submit tab</li>
+            <li>Tap a serial number</li>
+            <li>It will open this page with the form auto-filled!</li>
+          </ol>
+        </div>
+        <a href="https://fidloc.web.app" class="btn btn-primary" style="margin-top: 20px;">
+          Open FidLoc
+        </a>
+      `;
+    }
+    
+    function showFormHelper() {
+      contentEl.innerHTML = `
+        <div class="info-card">
+          <div class="info-row">
+            <span class="info-label">Technician</span>
+            <span class="info-value">${name}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Garage</span>
+            <span class="info-value">${garage}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Status</span>
+            <span class="info-value">${status}</span>
+          </div>
+        </div>
+        
+        <div class="serial-highlight">${serial}</div>
+        
+        <div class="status loading" id="statusMsg">
+          <span class="spinner"></span>
+          Opening form...
+        </div>
+        
+        <div id="buttons" class="hidden">
+          <button class="btn btn-primary" onclick="openAndFill()">
+            📝 Open Form & Auto-Fill
+          </button>
+          <button class="btn btn-secondary" onclick="copyScript()">
+            📋 Copy Fill Script
+          </button>
+        </div>
+        
+        <div class="instructions" id="manualInstructions" class="hidden">
+          <h3>📋 Manual Steps (if auto-fill doesn't work):</h3>
+          <ol>
+            <li>The form opened in a new tab</li>
+            <li>If fields aren't filled, open browser DevTools (F12)</li>
+            <li>Go to Console tab</li>
+            <li>Paste the script below and press Enter</li>
+          </ol>
+          <div class="copy-section">
+            <button class="btn btn-secondary" onclick="copyScript()" style="width: 100%;">
+              📋 Copy Auto-Fill Script
+            </button>
+          </div>
+        </div>
+      `;
+      
+      if (autoOpen) {
+        setTimeout(openAndFill, 500);
+      } else {
+        document.getElementById('buttons').classList.remove('hidden');
+        document.getElementById('statusMsg').classList.add('hidden');
+      }
+    }
+    
+    function openAndFill() {
+      const statusMsg = document.getElementById('statusMsg');
+      const buttons = document.getElementById('buttons');
+      const instructions = document.getElementById('manualInstructions');
+      
+      // Open form in new tab
+      const formWindow = window.open(FORM_URL, '_blank');
+      
+      if (!formWindow) {
+        // Popup blocked
+        statusMsg.className = 'status error';
+        statusMsg.innerHTML = '⚠️ Popup blocked! Please allow popups or click below:';
+        buttons.classList.remove('hidden');
+        buttons.innerHTML = `
+          <a href="${FORM_URL}" target="_blank" class="btn btn-primary">
+            📝 Open Form Manually
+          </a>
+          <button class="btn btn-secondary" onclick="copyScript()">
+            📋 Copy Fill Script
+          </button>
+        `;
+        instructions.classList.remove('hidden');
+        return;
+      }
+      
+      statusMsg.innerHTML = '<span class="spinner"></span> Form opened! Attempting to fill...';
+      
+      // Try to inject script after form loads
+      // Note: This may be blocked by cross-origin policy
+      setTimeout(() => {
+        try {
+          formWindow.eval(AUTO_FILL_SCRIPT);
+          statusMsg.className = 'status success';
+          statusMsg.innerHTML = '✅ Form opened! Check the new tab.';
+        } catch (e) {
+          // Cross-origin blocked (expected)
+          statusMsg.className = 'status';
+          statusMsg.style.background = 'rgba(255, 193, 7, 0.2)';
+          statusMsg.style.color = '#ffc107';
+          statusMsg.innerHTML = `
+            📝 Form opened in new tab!<br><br>
+            <strong>To auto-fill:</strong> Paste the script in DevTools Console (F12)
+          `;
+          instructions.classList.remove('hidden');
+        }
+        buttons.classList.remove('hidden');
+      }, 2000);
+    }
+    
+    function copyScript() {
+      const script = `javascript:${AUTO_FILL_SCRIPT.replace(/\s+/g, ' ').trim()}`;
+      
+      navigator.clipboard.writeText(AUTO_FILL_SCRIPT).then(() => {
+        alert('✅ Script copied!\\n\\nOpen the form tab, press F12, go to Console, and paste.');
+      }).catch(() => {
+        // Fallback
+        const textarea = document.createElement('textarea');
+        textarea.value = AUTO_FILL_SCRIPT;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        alert('✅ Script copied!\\n\\nOpen the form tab, press F12, go to Console, and paste.');
+      });
+    }
+    
+    // Initialize
+    if (!serial) {
+      showNoSerial();
+    } else {
+      showFormHelper();
+    }
+  </script>
+</body>
+</html>
