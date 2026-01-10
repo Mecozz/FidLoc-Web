@@ -453,8 +453,15 @@ function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
       });
       
       const text = result.data.text;
+      console.log('OCR Result:', text); // Debug
       setImportText(text);
-      setParsedEntries(parseImportText(text));
+      const parsed = parseImportText(text);
+      console.log('Parsed entries:', parsed); // Debug
+      setParsedEntries(parsed);
+      
+      if (parsed.length === 0) {
+        alert('Could not find any dates/hours in the image. You can manually paste or type the data below.');
+      }
     } catch (err) {
       console.error('OCR Error:', err);
       alert('Failed to read image. Try pasting the text instead.');
@@ -466,32 +473,40 @@ function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
 
   // Parse pasted HR text or manual input
   const parseImportText = (text) => {
-    const lines = text.trim().split('\n');
     const parsed = [];
     
-    // Pattern: looks for dates like 01/04/2026 or 2026-01-04 followed by hours
-    const dateHoursPattern = /(\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}).*?(\d+\.?\d*)/g;
+    // Multiple patterns to catch different OCR outputs
+    // Pattern 1: MM/DD/YYYY followed eventually by hours like 11.000000 or 11.5
+    // Pattern 2: Handle OCR artifacts and spacing issues
+    const lines = text.split(/[\n\r]+/);
     
     for (const line of lines) {
-      let match;
-      while ((match = dateHoursPattern.exec(line)) !== null) {
-        let dateStr = match[1];
-        const hours = parseFloat(match[2]);
-        
-        // Convert MM/DD/YYYY to YYYY-MM-DD
-        if (dateStr.includes('/')) {
-          const [mm, dd, yyyy] = dateStr.split('/');
-          dateStr = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
-        }
-        
-        // Check if we already have this date
-        const exists = entries.some(e => e.date === dateStr);
-        
+      // Look for date pattern MM/DD/YYYY or M/D/YYYY
+      const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (!dateMatch) continue;
+      
+      const [, mm, dd, yyyy] = dateMatch;
+      const dateStr = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+      
+      // Look for hours - usually a number with decimals like 11.000000 or 10.5
+      // Could appear anywhere after the date in the line
+      const afterDate = line.substring(line.indexOf(dateMatch[0]) + dateMatch[0].length);
+      const hoursMatch = afterDate.match(/(\d{1,2})\.(\d+)/);
+      
+      if (hoursMatch) {
+        const hours = parseFloat(hoursMatch[0]);
         if (hours > 0 && hours <= 24) {
-          parsed.push({ date: dateStr, hours, exists });
+          const exists = entries.some(e => e.date === dateStr);
+          // Avoid duplicates in parsed array
+          if (!parsed.some(p => p.date === dateStr)) {
+            parsed.push({ date: dateStr, hours: Math.round(hours * 100) / 100, exists });
+          }
         }
       }
     }
+    
+    // Sort by date
+    parsed.sort((a, b) => a.date.localeCompare(b.date));
     
     return parsed;
   };
