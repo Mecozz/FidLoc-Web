@@ -233,17 +233,20 @@ export default function TimeTracker({ userId, onClose }) {
 function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntries }) {
   const [schedule, setSchedule] = useState(existingSettings?.schedule || '5x8');
   const [baseRate, setBaseRate] = useState(existingSettings?.baseRate?.toString() || '');
+  const [shiftDiff, setShiftDiff] = useState(existingSettings?.shiftDiff || 'none');
   const [otThreshold, setOtThreshold] = useState(existingSettings?.otThreshold?.toString() || '40');
   const [dtThreshold, setDtThreshold] = useState(existingSettings?.dtThreshold?.toString() || '52');
   const [otMultiplier, setOtMultiplier] = useState(existingSettings?.otMultiplier?.toString() || '1.5');
   const [dtMultiplier, setDtMultiplier] = useState(existingSettings?.dtMultiplier?.toString() || '2.0');
   
-  // For rate change dialog
-  const [showRateChangeDialog, setShowRateChangeDialog] = useState(false);
-  const [rateChangeStartDate, setRateChangeStartDate] = useState('');
+  // For settings change dialog
+  const [showChangeDialog, setShowChangeDialog] = useState(false);
+  const [changeStartDate, setChangeStartDate] = useState('');
   const [pendingSettings, setPendingSettings] = useState(null);
+  const [changeType, setChangeType] = useState(''); // 'rate', 'shiftDiff', 'both'
 
   const rateChanged = existingSettings && parseFloat(baseRate) !== existingSettings.baseRate;
+  const shiftDiffChanged = existingSettings && shiftDiff !== existingSettings.shiftDiff;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -252,65 +255,80 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
     const newSettings = {
       schedule,
       baseRate: parseFloat(baseRate),
+      shiftDiff,
       otThreshold: parseFloat(otThreshold) || 40,
       dtThreshold: parseFloat(dtThreshold) || 52,
       otMultiplier: parseFloat(otMultiplier) || 1.5,
       dtMultiplier: parseFloat(dtMultiplier) || 2.0
     };
     
-    // If rate changed and we have entries, ask for start date
-    if (rateChanged && entries && entries.length > 0) {
+    // If rate or shift diff changed and we have entries, ask for start date
+    if ((rateChanged || shiftDiffChanged) && entries && entries.length > 0) {
       setPendingSettings(newSettings);
+      // Determine what changed
+      if (rateChanged && shiftDiffChanged) setChangeType('both');
+      else if (rateChanged) setChangeType('rate');
+      else setChangeType('shiftDiff');
       // Default to start of next week (Sunday)
       const nextSunday = new Date();
       nextSunday.setDate(nextSunday.getDate() + (7 - nextSunday.getDay()));
-      setRateChangeStartDate(nextSunday.toISOString().split('T')[0]);
-      setShowRateChangeDialog(true);
+      setChangeStartDate(nextSunday.toISOString().split('T')[0]);
+      setShowChangeDialog(true);
     } else {
       onSave(newSettings);
     }
   };
 
-  const applyRateChange = () => {
-    if (!rateChangeStartDate) { alert('Please select a start date'); return; }
+  const applyChanges = () => {
+    if (!changeStartDate) { alert('Please select a start date'); return; }
     
-    // Update entries from the start date forward with new rate
-    const startDate = new Date(rateChangeStartDate + 'T00:00:00');
+    // Update entries from the start date forward with new settings
+    const startDate = new Date(changeStartDate + 'T00:00:00');
     const updatedEntries = entries.map(entry => {
       const entryDate = new Date(entry.date + 'T12:00:00');
       if (entryDate >= startDate) {
-        return {
-          ...entry,
-          baseRate: pendingSettings.baseRate
-        };
+        const updates = { ...entry };
+        if (rateChanged) updates.baseRate = pendingSettings.baseRate;
+        if (shiftDiffChanged) updates.shiftDiff = pendingSettings.shiftDiff;
+        return updates;
       }
       return entry;
     });
     
     onUpdateEntries(updatedEntries);
     onSave(pendingSettings);
-    setShowRateChangeDialog(false);
+    setShowChangeDialog(false);
+  };
+
+  const getChangeDescription = () => {
+    if (changeType === 'both') {
+      return `Rate: $${existingSettings?.baseRate?.toFixed(2)} → $${parseFloat(baseRate).toFixed(2)}/hr\nShift Diff: ${existingSettings?.shiftDiff || 'none'} → ${shiftDiff}`;
+    } else if (changeType === 'rate') {
+      return `$${existingSettings?.baseRate?.toFixed(2)} → $${parseFloat(baseRate).toFixed(2)}/hr`;
+    } else {
+      return `${existingSettings?.shiftDiff || 'none'} → ${shiftDiff}`;
+    }
   };
 
   return (
     <div className="tt-setup">
-      {showRateChangeDialog && (
+      {showChangeDialog && (
         <div className="rate-change-dialog">
           <div className="rate-change-content">
-            <h4>💰 Rate Change</h4>
-            <p>You're changing from <strong>${existingSettings?.baseRate?.toFixed(2)}</strong> to <strong>${parseFloat(baseRate).toFixed(2)}</strong>/hr</p>
-            <p>When does the new rate start?</p>
+            <h4>⚙️ Settings Change</h4>
+            <p style={{whiteSpace: 'pre-line'}}>{getChangeDescription()}</p>
+            <p>When do these changes start?</p>
             <div className="form-group">
-              <label>Start Date (entries from this date forward will use new rate)</label>
+              <label>Start Date (entries from this date forward will use new settings)</label>
               <input 
                 type="date" 
-                value={rateChangeStartDate} 
-                onChange={e => setRateChangeStartDate(e.target.value)} 
+                value={changeStartDate} 
+                onChange={e => setChangeStartDate(e.target.value)} 
               />
             </div>
             <div className="rate-change-actions">
-              <button type="button" onClick={() => setShowRateChangeDialog(false)} className="cancel-btn">Cancel</button>
-              <button type="button" onClick={applyRateChange} className="save-btn">Apply New Rate</button>
+              <button type="button" onClick={() => setShowChangeDialog(false)} className="cancel-btn">Cancel</button>
+              <button type="button" onClick={applyChanges} className="save-btn">Apply Changes</button>
             </div>
           </div>
         </div>
@@ -346,7 +364,24 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
               <div className="input-with-prefix"><span>$</span><input type="number" step="0.01" value={baseRate} onChange={e => setBaseRate(e.target.value)} placeholder="38.18" required /></div>
             </div>
           </div>
-          <p className="setup-hint">Shift differential (+10%) is selected per entry when adding hours.</p>
+          
+          <div className="form-group" style={{marginTop: '16px'}}>
+            <label>Shift Differential (+10%)</label>
+            <div className="shift-diff-options">
+              <label className={`shift-option ${shiftDiff === 'none' ? 'selected' : ''}`}>
+                <input type="radio" name="settingsShiftDiff" value="none" checked={shiftDiff === 'none'} onChange={() => setShiftDiff('none')} />
+                <span>None</span>
+              </label>
+              <label className={`shift-option ${shiftDiff === 'base' ? 'selected' : ''}`}>
+                <input type="radio" name="settingsShiftDiff" value="base" checked={shiftDiff === 'base'} onChange={() => setShiftDiff('base')} />
+                <span>First 40hrs</span>
+              </label>
+              <label className={`shift-option ${shiftDiff === 'all' ? 'selected' : ''}`}>
+                <input type="radio" name="settingsShiftDiff" value="all" checked={shiftDiff === 'all'} onChange={() => setShiftDiff('all')} />
+                <span>All Hours</span>
+              </label>
+            </div>
+          </div>
         </div>
 
         <div className="setup-section">
@@ -386,7 +421,6 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
 function EntryForm({ settings, entries, onAdd }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [hoursWorked, setHoursWorked] = useState('');
-  const [shiftDiff, setShiftDiff] = useState('none'); // 'none', 'base', 'all'
   const [isHoliday, setIsHoliday] = useState(false);
   const [notes, setNotes] = useState('');
 
@@ -406,13 +440,12 @@ function EntryForm({ settings, entries, onAdd }) {
     onAdd({ 
       date, 
       hoursWorked: hours, 
-      shiftDiff,
+      shiftDiff: settings.shiftDiff || 'none',
       isHoliday, 
       notes,
       baseRate: settings.baseRate
     });
     setHoursWorked('');
-    setShiftDiff('none');
     setIsHoliday(false);
     setNotes('');
   };
@@ -420,7 +453,7 @@ function EntryForm({ settings, entries, onAdd }) {
   const quickButtons = settings.schedule === '4x10' ? [10, 12, 8] : [8, 10, 12];
   const previewHours = parseFloat(hoursWorked) || 0;
   const previewWeekTotal = weekHoursSoFar + previewHours;
-  const previewEntry = { date, hoursWorked: previewHours, shiftDiff, isHoliday };
+  const previewEntry = { date, hoursWorked: previewHours, shiftDiff: settings.shiftDiff || 'none', isHoliday };
   const previewCalc = calculateWeekPay([...weekEntries, previewEntry], settings);
 
   return (
@@ -434,24 +467,6 @@ function EntryForm({ settings, entries, onAdd }) {
       <div className="form-group">
         <label>Date</label>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
-      </div>
-
-      <div className="form-group">
-        <label>Shift Differential (+10%)</label>
-        <div className="shift-diff-options">
-          <label className={`shift-option ${shiftDiff === 'none' ? 'selected' : ''}`}>
-            <input type="radio" name="shiftDiff" value="none" checked={shiftDiff === 'none'} onChange={() => setShiftDiff('none')} />
-            <span>None</span>
-          </label>
-          <label className={`shift-option ${shiftDiff === 'base' ? 'selected' : ''}`}>
-            <input type="radio" name="shiftDiff" value="base" checked={shiftDiff === 'base'} onChange={() => setShiftDiff('base')} />
-            <span>First 40hrs</span>
-          </label>
-          <label className={`shift-option ${shiftDiff === 'all' ? 'selected' : ''}`}>
-            <input type="radio" name="shiftDiff" value="all" checked={shiftDiff === 'all'} onChange={() => setShiftDiff('all')} />
-            <span>All Hours</span>
-          </label>
-        </div>
       </div>
 
       <div className="holiday-toggle">
@@ -500,7 +515,6 @@ function EntryForm({ settings, entries, onAdd }) {
 function EditEntryForm({ entry, settings, onSave, onCancel }) {
   const [date, setDate] = useState(entry.date);
   const [hoursWorked, setHoursWorked] = useState(entry.hoursWorked?.toString() || '');
-  const [shiftDiff, setShiftDiff] = useState(entry.shiftDiff || 'none');
   const [isHoliday, setIsHoliday] = useState(entry.isHoliday || false);
   const [notes, setNotes] = useState(entry.notes || '');
 
@@ -511,7 +525,7 @@ function EditEntryForm({ entry, settings, onSave, onCancel }) {
     onSave({ 
       date, 
       hoursWorked: hours, 
-      shiftDiff,
+      shiftDiff: entry.shiftDiff || 'none',
       isHoliday, 
       notes,
       baseRate: entry.baseRate || settings.baseRate
@@ -527,24 +541,6 @@ function EditEntryForm({ entry, settings, onSave, onCancel }) {
         <div className="form-group">
           <label>Date</label>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
-        </div>
-
-        <div className="form-group">
-          <label>Shift Differential (+10%)</label>
-          <div className="shift-diff-options">
-            <label className={`shift-option ${shiftDiff === 'none' ? 'selected' : ''}`}>
-              <input type="radio" name="editShiftDiff" value="none" checked={shiftDiff === 'none'} onChange={() => setShiftDiff('none')} />
-              <span>None</span>
-            </label>
-            <label className={`shift-option ${shiftDiff === 'base' ? 'selected' : ''}`}>
-              <input type="radio" name="editShiftDiff" value="base" checked={shiftDiff === 'base'} onChange={() => setShiftDiff('base')} />
-              <span>First 40hrs</span>
-            </label>
-            <label className={`shift-option ${shiftDiff === 'all' ? 'selected' : ''}`}>
-              <input type="radio" name="editShiftDiff" value="all" checked={shiftDiff === 'all'} onChange={() => setShiftDiff('all')} />
-              <span>All Hours</span>
-            </label>
-          </div>
         </div>
 
         <div className="holiday-toggle">
