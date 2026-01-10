@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
-import { X, Clock, Settings, Plus, Trash2, Download, AlertTriangle, ChevronRight, ChevronDown, Calendar, DollarSign, Edit2, Check } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { X, Clock, Settings, Plus, Trash2, Download, AlertTriangle, ChevronRight, ChevronDown, Calendar, DollarSign, Edit2, Check, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import './TimeTracker.css';
 
 const STORAGE_KEY = 'fidloc_timetracker';
@@ -10,23 +12,82 @@ export default function TimeTracker({ userId, onClose }) {
   const [entries, setEntries] = useState([]);
   const [showSetup, setShowSetup] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
+  const [syncEnabled, setSyncEnabled] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
 
+  // Load data - check Firebase first if sync enabled, then localStorage
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY + '_' + userId);
-    if (saved) {
-      const data = JSON.parse(saved);
-      setSettings(data.settings || null);
-      setEntries(data.entries || []);
-    }
+    const loadData = async () => {
+      // First check localStorage for sync preference
+      const localData = localStorage.getItem(STORAGE_KEY + '_' + userId);
+      let localSettings = null;
+      let localEntries = [];
+      
+      if (localData) {
+        const parsed = JSON.parse(localData);
+        localSettings = parsed.settings || null;
+        localEntries = parsed.entries || [];
+        setSyncEnabled(parsed.syncEnabled || false);
+      }
+
+      // If sync is enabled, try to load from Firebase
+      if (localSettings?.syncEnabled) {
+        try {
+          const docRef = doc(db, 'timetracker', userId);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const firebaseData = docSnap.data();
+            setSettings(firebaseData.settings || localSettings);
+            setEntries(firebaseData.entries || localEntries);
+            setSyncEnabled(true);
+            setLastSync(firebaseData.lastSync || null);
+            return;
+          }
+        } catch (err) {
+          console.error('Firebase load error:', err);
+        }
+      }
+
+      // Fall back to localStorage
+      setSettings(localSettings);
+      setEntries(localEntries);
+    };
+
+    loadData();
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, [userId]);
 
+  // Save to localStorage (always) and Firebase (if enabled)
+  const saveData = useCallback(async (newSettings, newEntries, newSyncEnabled) => {
+    const data = { settings: newSettings, entries: newEntries, syncEnabled: newSyncEnabled };
+    localStorage.setItem(STORAGE_KEY + '_' + userId, JSON.stringify(data));
+
+    if (newSyncEnabled && userId) {
+      setSyncing(true);
+      try {
+        const docRef = doc(db, 'timetracker', userId);
+        await setDoc(docRef, {
+          settings: newSettings,
+          entries: newEntries,
+          lastSync: new Date().toISOString(),
+          userId
+        });
+        setLastSync(new Date().toISOString());
+      } catch (err) {
+        console.error('Firebase save error:', err);
+      }
+      setSyncing(false);
+    }
+  }, [userId]);
+
+  // Auto-save when data changes
   useEffect(() => {
     if (settings !== null || entries.length > 0) {
-      localStorage.setItem(STORAGE_KEY + '_' + userId, JSON.stringify({ settings, entries }));
+      saveData(settings, entries, syncEnabled);
     }
-  }, [settings, entries, userId]);
+  }, [settings, entries, syncEnabled, saveData]);
 
   useEffect(() => {
     if (settings === null) setShowSetup(true);
@@ -35,6 +96,35 @@ export default function TimeTracker({ userId, onClose }) {
   const handleSaveSettings = (newSettings) => {
     setSettings(newSettings);
     setShowSetup(false);
+  };
+
+  const toggleSync = async () => {
+    const newSyncEnabled = !syncEnabled;
+    setSyncEnabled(newSyncEnabled);
+    
+    if (newSyncEnabled) {
+      // Sync current data to Firebase
+      await saveData(settings, entries, true);
+    }
+  };
+
+  const forceSync = async () => {
+    if (!syncEnabled) return;
+    setSyncing(true);
+    try {
+      const docRef = doc(db, 'timetracker', userId);
+      await setDoc(docRef, {
+        settings,
+        entries,
+        lastSync: new Date().toISOString(),
+        userId
+      });
+      setLastSync(new Date().toISOString());
+    } catch (err) {
+      console.error('Force sync error:', err);
+      alert('Sync failed. Check your connection.');
+    }
+    setSyncing(false);
   };
 
   const addEntry = (entry) => {
@@ -52,11 +142,20 @@ export default function TimeTracker({ userId, onClose }) {
     }
   };
 
-  const clearAllData = () => {
+  const clearAllData = async () => {
     if (window.confirm('⚠️ Delete ALL time tracking data?\n\nThis cannot be undone!')) {
       setEntries([]);
       setSettings(null);
       localStorage.removeItem(STORAGE_KEY + '_' + userId);
+      
+      if (syncEnabled && userId) {
+        try {
+          const docRef = doc(db, 'timetracker', userId);
+          await setDoc(docRef, { settings: null, entries: [], lastSync: new Date().toISOString(), userId });
+        } catch (err) {
+          console.error('Firebase clear error:', err);
+        }
+      }
       setShowSetup(true);
     }
   };
@@ -82,7 +181,27 @@ export default function TimeTracker({ userId, onClose }) {
           <h2><Clock size={20} /> Time Tracker</h2>
           <button onClick={onClose} className="close-button"><X size={24} /></button>
         </div>
-        <div className="storage-warning"><AlertTriangle size={16} /><span>Data stored locally in this browser only.</span></div>
+        
+        <div className={`sync-status ${syncEnabled ? 'enabled' : 'disabled'}`}>
+          {syncEnabled ? (
+            <>
+              <Cloud size={14} />
+              <span>Cloud Sync {syncing ? 'syncing...' : 'on'}</span>
+              <button onClick={forceSync} className="sync-btn" disabled={syncing}>
+                <RefreshCw size={12} className={syncing ? 'spinning' : ''} />
+              </button>
+            </>
+          ) : (
+            <>
+              <CloudOff size={14} />
+              <span>Local only</span>
+            </>
+          )}
+          <button onClick={toggleSync} className="toggle-sync-btn">
+            {syncEnabled ? 'Disable' : 'Enable'} Sync
+          </button>
+        </div>
+
         {showSetup ? (
           <SetupScreen onSave={handleSaveSettings} existingSettings={settings} onCancel={() => settings && setShowSetup(false)} />
         ) : editingEntry ? (
@@ -235,7 +354,6 @@ function EntryForm({ settings, entries, onAdd }) {
 
   if (!settings) return <div className="loading">Loading...</div>;
 
-  // Get week entries for this date to calculate running total
   const weekStart = getWeekStart(new Date(date + 'T12:00:00'));
   const weekEntries = entries.filter(e => {
     const entryWeekStart = getWeekStart(new Date(e.date + 'T12:00:00'));
@@ -252,10 +370,7 @@ function EntryForm({ settings, entries, onAdd }) {
     setNotes('');
   };
 
-  // Quick buttons based on schedule
   const quickButtons = settings.schedule === '4x10' ? [10, 12, 8] : [8, 10, 12];
-
-  // Preview calculation
   const previewHours = parseFloat(hoursWorked) || 0;
   const previewWeekTotal = weekHoursSoFar + previewHours;
   const previewEntry = { date, hoursWorked: previewHours, isWeekend };
@@ -453,7 +568,6 @@ function SummaryView({ entries, settings }) {
   
   const now = new Date();
   const thisWeekStart = getWeekStart(now);
-  // Week end is Saturday (6 days after Sunday start)
   const thisWeekEnd = new Date(thisWeekStart);
   thisWeekEnd.setDate(thisWeekEnd.getDate() + 6);
   thisWeekEnd.setHours(23, 59, 59, 999);
@@ -467,7 +581,6 @@ function SummaryView({ entries, settings }) {
       return d >= startDate && d <= endDate;
     });
     
-    // Group by week for proper OT calculation
     const byWeek = {};
     periodEntries.forEach(e => {
       const ws = getWeekStart(new Date(e.date + 'T12:00:00')).toISOString();
@@ -527,7 +640,6 @@ function SummaryView({ entries, settings }) {
   );
 }
 
-// Helper functions
 function getWeekStart(date) {
   const d = new Date(date);
   d.setDate(d.getDate() - d.getDay());
@@ -541,7 +653,6 @@ function calculateWeekPay(weekEntries, settings) {
   const { baseRate, weekendDiff, weekendDiffAppliesTo, otThreshold, dtThreshold, otMultiplier, dtMultiplier } = settings;
   const applyWeekendToAll = weekendDiffAppliesTo === 'all';
   
-  // Sort entries by date
   const sorted = [...weekEntries].sort((a, b) => a.date.localeCompare(b.date));
   
   let runningHours = 0;
@@ -552,7 +663,6 @@ function calculateWeekPay(weekEntries, settings) {
     const hours = entry.hoursWorked || 0;
     const weekendMult = entry.isWeekend ? (1 + weekendDiff / 100) : 1;
     
-    // Calculate how this entry's hours split between regular/OT/DT
     let entryRegular = 0, entryOT = 0, entryDT = 0;
     
     for (let h = 0; h < hours; h += 0.25) {
@@ -573,27 +683,23 @@ function calculateWeekPay(weekEntries, settings) {
     otHours += entryOT;
     dtHours += entryDT;
     
-    // Calculate pay based on weekend diff setting
     let entryRegularPay, entryOTPay, entryDTPay;
     
     if (applyWeekendToAll) {
-      // Weekend diff applies to ALL hours (regular, OT, and DT)
       const effectiveRate = baseRate * weekendMult;
       entryRegularPay = entryRegular * effectiveRate;
       entryOTPay = entryOT * effectiveRate * otMultiplier;
       entryDTPay = entryDT * effectiveRate * dtMultiplier;
     } else {
-      // Weekend diff only applies to first 40 hours (regular pay)
       entryRegularPay = entryRegular * baseRate * weekendMult;
-      entryOTPay = entryOT * baseRate * otMultiplier; // No weekend diff on OT
-      entryDTPay = entryDT * baseRate * dtMultiplier; // No weekend diff on DT
+      entryOTPay = entryOT * baseRate * otMultiplier;
+      entryDTPay = entryDT * baseRate * dtMultiplier;
     }
     
     regularPay += entryRegularPay;
     otPay += entryOTPay;
     dtPay += entryDTPay;
     
-    // Calculate weekend bonus for display
     if (entry.isWeekend) {
       const basePayNoWeekend = entryRegular * baseRate + entryOT * baseRate * otMultiplier + entryDT * baseRate * dtMultiplier;
       weekendBonus += (entryRegularPay + entryOTPay + entryDTPay) - basePayNoWeekend;
