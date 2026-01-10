@@ -345,6 +345,7 @@ function EntryForm({ settings, entries, onAdd }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [hoursWorked, setHoursWorked] = useState('');
   const [isWeekend, setIsWeekend] = useState(false);
+  const [isHoliday, setIsHoliday] = useState(false);
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
@@ -364,16 +365,17 @@ function EntryForm({ settings, entries, onAdd }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     const hours = parseFloat(hoursWorked) || 0;
-    if (hours <= 0) { alert('Please enter hours worked'); return; }
-    onAdd({ date, hoursWorked: hours, isWeekend, notes });
+    if (hours <= 0 && !isHoliday) { alert('Please enter hours worked'); return; }
+    onAdd({ date, hoursWorked: hours, isWeekend, isHoliday, notes });
     setHoursWorked('');
+    setIsHoliday(false);
     setNotes('');
   };
 
   const quickButtons = settings.schedule === '4x10' ? [10, 12, 8] : [8, 10, 12];
   const previewHours = parseFloat(hoursWorked) || 0;
   const previewWeekTotal = weekHoursSoFar + previewHours;
-  const previewEntry = { date, hoursWorked: previewHours, isWeekend };
+  const previewEntry = { date, hoursWorked: previewHours, isWeekend, isHoliday };
   const previewCalc = calculateWeekPay([...weekEntries, previewEntry], settings);
 
   return (
@@ -396,13 +398,21 @@ function EntryForm({ settings, entries, onAdd }) {
         </label>
       </div>
 
+      <div className="holiday-toggle">
+        <label className={`toggle-label holiday ${isHoliday ? 'active' : ''}`}>
+          <input type="checkbox" checked={isHoliday} onChange={e => setIsHoliday(e.target.checked)} />
+          <span>🎄 Holiday (+10hrs bonus)</span>
+        </label>
+      </div>
+
       <div className="form-group">
-        <label>Hours Worked</label>
-        <input type="number" step="0.25" value={hoursWorked} onChange={e => setHoursWorked(e.target.value)} placeholder="10" />
+        <label>Hours Worked {isHoliday && '(0 if day off)'}</label>
+        <input type="number" step="0.25" value={hoursWorked} onChange={e => setHoursWorked(e.target.value)} placeholder={isHoliday ? "0" : "10"} />
         <div className="quick-buttons">
           {quickButtons.map(h => (
             <button key={h} type="button" onClick={() => setHoursWorked(h.toString())} className="quick-btn">{h}h</button>
           ))}
+          {isHoliday && <button type="button" onClick={() => setHoursWorked('0')} className="quick-btn">0h</button>}
         </div>
       </div>
 
@@ -411,7 +421,7 @@ function EntryForm({ settings, entries, onAdd }) {
         <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Day off work, Holiday..." />
       </div>
 
-      {previewHours > 0 && (
+      {(previewHours > 0 || isHoliday) && (
         <div className="pay-preview">
           <div className="preview-title">This Entry</div>
           <div className="preview-breakdown">
@@ -420,8 +430,9 @@ function EntryForm({ settings, entries, onAdd }) {
             {previewCalc.otHours > 0 && <div className="preview-row ot"><span>OT ({previewCalc.otHours}h × {settings.otMultiplier}):</span><span>${previewCalc.otPay.toFixed(2)}</span></div>}
             {previewCalc.dtHours > 0 && <div className="preview-row dt"><span>DT ({previewCalc.dtHours}h × {settings.dtMultiplier}):</span><span>${previewCalc.dtPay.toFixed(2)}</span></div>}
             {isWeekend && <div className="preview-row bonus"><span>Weekend Bonus:</span><span>+${previewCalc.weekendBonus.toFixed(2)}</span></div>}
+            {isHoliday && <div className="preview-row holiday"><span>🎄 Holiday (10h):</span><span>+${(settings.baseRate * 10).toFixed(2)}</span></div>}
           </div>
-          <div className="preview-total"><span>Week Total:</span><span>${previewCalc.totalPay.toFixed(2)}</span></div>
+          <div className="preview-total"><span>Week Total:</span><span>${(previewCalc.totalPay + (isHoliday ? settings.baseRate * 10 : 0)).toFixed(2)}</span></div>
         </div>
       )}
 
@@ -434,6 +445,7 @@ function EditEntryForm({ entry, settings, onSave, onCancel }) {
   const [date, setDate] = useState(entry.date);
   const [hoursWorked, setHoursWorked] = useState(entry.hoursWorked?.toString() || '');
   const [isWeekend, setIsWeekend] = useState(entry.isWeekend || false);
+  const [isHoliday, setIsHoliday] = useState(entry.isHoliday || false);
   const [notes, setNotes] = useState(entry.notes || '');
 
   useEffect(() => {
@@ -444,8 +456,8 @@ function EditEntryForm({ entry, settings, onSave, onCancel }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     const hours = parseFloat(hoursWorked) || 0;
-    if (hours <= 0) { alert('Please enter hours worked'); return; }
-    onSave({ date, hoursWorked: hours, isWeekend, notes });
+    if (hours <= 0 && !isHoliday) { alert('Please enter hours worked'); return; }
+    onSave({ date, hoursWorked: hours, isWeekend, isHoliday, notes });
   };
 
   const quickButtons = settings.schedule === '4x10' ? [10, 12, 8] : [8, 10, 12];
@@ -466,13 +478,21 @@ function EditEntryForm({ entry, settings, onSave, onCancel }) {
           </label>
         </div>
 
+        <div className="holiday-toggle">
+          <label className={`toggle-label holiday ${isHoliday ? 'active' : ''}`}>
+            <input type="checkbox" checked={isHoliday} onChange={e => setIsHoliday(e.target.checked)} />
+            <span>🎄 Holiday (+10hrs bonus)</span>
+          </label>
+        </div>
+
         <div className="form-group">
-          <label>Hours Worked</label>
-          <input type="number" step="0.25" value={hoursWorked} onChange={e => setHoursWorked(e.target.value)} placeholder="10" />
+          <label>Hours Worked {isHoliday && '(0 if day off)'}</label>
+          <input type="number" step="0.25" value={hoursWorked} onChange={e => setHoursWorked(e.target.value)} placeholder={isHoliday ? "0" : "10"} />
           <div className="quick-buttons">
             {quickButtons.map(h => (
               <button key={h} type="button" onClick={() => setHoursWorked(h.toString())} className="quick-btn">{h}h</button>
             ))}
+            {isHoliday && <button type="button" onClick={() => setHoursWorked('0')} className="quick-btn">0h</button>}
           </div>
         </div>
 
@@ -542,9 +562,10 @@ function HistoryView({ entries, settings, onDelete, onEdit }) {
                         <span className="date-day">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
                         <span className="date-num">{d.getDate()}</span>
                         {entry.isWeekend && <span className="weekend-badge">WE</span>}
+                        {entry.isHoliday && <span className="holiday-badge">🎄</span>}
                       </div>
                       <div className="entry-hours">
-                        <span>{entry.hoursWorked}h</span>
+                        <span>{entry.hoursWorked}h{entry.isHoliday && ' +10h'}</span>
                         {entry.notes && <span className="entry-note" title={entry.notes}>📝</span>}
                       </div>
                       <div className="entry-actions">
@@ -648,7 +669,7 @@ function getWeekStart(date) {
 }
 
 function calculateWeekPay(weekEntries, settings) {
-  if (!settings || !weekEntries.length) return { regularHours: 0, otHours: 0, dtHours: 0, regularPay: 0, otPay: 0, dtPay: 0, weekendBonus: 0, totalPay: 0 };
+  if (!settings || !weekEntries.length) return { regularHours: 0, otHours: 0, dtHours: 0, holidayHours: 0, regularPay: 0, otPay: 0, dtPay: 0, holidayPay: 0, weekendBonus: 0, totalPay: 0 };
 
   const { baseRate, weekendDiff, weekendDiffAppliesTo, otThreshold, dtThreshold, otMultiplier, dtMultiplier } = settings;
   const applyWeekendToAll = weekendDiffAppliesTo === 'all';
@@ -656,12 +677,18 @@ function calculateWeekPay(weekEntries, settings) {
   const sorted = [...weekEntries].sort((a, b) => a.date.localeCompare(b.date));
   
   let runningHours = 0;
-  let regularHours = 0, otHours = 0, dtHours = 0;
-  let regularPay = 0, otPay = 0, dtPay = 0, weekendBonus = 0;
+  let regularHours = 0, otHours = 0, dtHours = 0, holidayHours = 0;
+  let regularPay = 0, otPay = 0, dtPay = 0, holidayPay = 0, weekendBonus = 0;
 
   sorted.forEach(entry => {
     const hours = entry.hoursWorked || 0;
     const weekendMult = entry.isWeekend ? (1 + weekendDiff / 100) : 1;
+    
+    // Holiday bonus: 10 hours at base rate
+    if (entry.isHoliday) {
+      holidayHours += 10;
+      holidayPay += baseRate * 10;
+    }
     
     let entryRegular = 0, entryOT = 0, entryDT = 0;
     
@@ -710,10 +737,12 @@ function calculateWeekPay(weekEntries, settings) {
     regularHours: Math.round(regularHours * 100) / 100,
     otHours: Math.round(otHours * 100) / 100,
     dtHours: Math.round(dtHours * 100) / 100,
+    holidayHours,
     regularPay,
     otPay,
     dtPay,
+    holidayPay,
     weekendBonus,
-    totalPay: regularPay + otPay + dtPay
+    totalPay: regularPay + otPay + dtPay + holidayPay
   };
 }
