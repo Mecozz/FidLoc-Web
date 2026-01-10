@@ -496,27 +496,30 @@ function SummaryView({ entries, settings }) {
       <div className="summary-card highlight">
         <h4>This Week</h4>
         <div className="summary-stats">
-          <div className="stat"><span className="stat-value">{thisWeek.totalHours}</span><span className="stat-label">Total Hrs</span></div>
+          <div className="stat"><span className="stat-value">{thisWeek.totalHours}</span><span className="stat-label">Total</span></div>
           <div className="stat"><span className="stat-value">{thisWeek.otHours}</span><span className="stat-label">OT</span></div>
           <div className="stat"><span className="stat-value">{thisWeek.dtHours}</span><span className="stat-label">DT</span></div>
+          <div className="stat"><span className="stat-value">{thisWeek.otHours + thisWeek.dtHours}</span><span className="stat-label">OT+DT</span></div>
           <div className="stat big"><span className="stat-value">${thisWeek.totalPay.toFixed(2)}</span><span className="stat-label">Pay</span></div>
         </div>
       </div>
       <div className="summary-card">
         <h4>This Month</h4>
         <div className="summary-stats">
-          <div className="stat"><span className="stat-value">{thisMonth.totalHours}</span><span className="stat-label">Hours</span></div>
+          <div className="stat"><span className="stat-value">{thisMonth.totalHours}</span><span className="stat-label">Total</span></div>
           <div className="stat"><span className="stat-value">{thisMonth.otHours}</span><span className="stat-label">OT</span></div>
           <div className="stat"><span className="stat-value">{thisMonth.dtHours}</span><span className="stat-label">DT</span></div>
+          <div className="stat"><span className="stat-value">{thisMonth.otHours + thisMonth.dtHours}</span><span className="stat-label">OT+DT</span></div>
           <div className="stat big"><span className="stat-value">${thisMonth.totalPay.toFixed(2)}</span><span className="stat-label">Pay</span></div>
         </div>
       </div>
       <div className="summary-card">
         <h4>This Year</h4>
         <div className="summary-stats">
-          <div className="stat"><span className="stat-value">{thisYear.totalHours}</span><span className="stat-label">Hours</span></div>
+          <div className="stat"><span className="stat-value">{thisYear.totalHours}</span><span className="stat-label">Total</span></div>
           <div className="stat"><span className="stat-value">{thisYear.otHours}</span><span className="stat-label">OT</span></div>
           <div className="stat"><span className="stat-value">{thisYear.dtHours}</span><span className="stat-label">DT</span></div>
+          <div className="stat"><span className="stat-value">{thisYear.otHours + thisYear.dtHours}</span><span className="stat-label">OT+DT</span></div>
           <div className="stat big"><span className="stat-value">${thisYear.totalPay.toFixed(2)}</span><span className="stat-label">Pay</span></div>
         </div>
       </div>
