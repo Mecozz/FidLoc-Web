@@ -194,8 +194,38 @@
 }
 .applies-option input { display: none; }
 
-/* Weekend Toggle */
-.weekend-toggle { margin-bottom: 8px; }
+/* Shift Differential Options */
+.shift-diff-options {
+  display: flex;
+  gap: 8px;
+}
+.shift-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 8px;
+  background: var(--input-bg, #0f0f23);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+.shift-option input { display: none; }
+.shift-option.selected { border-color: #22c55e; background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.shift-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+  padding: 2px 4px;
+  border-radius: 3px;
+  margin-top: 2px;
+}
+
+/* Holiday Toggle */
 .holiday-toggle { margin-bottom: 12px; }
 .toggle-label {
   display: flex;

@@ -165,7 +165,7 @@ export default function TimeTracker({ userId, onClose }) {
     const headers = ['Date', 'Hours Worked', 'Weekend', 'Regular Pay', 'OT Pay', 'DT Pay', 'Total Pay', 'Notes'];
     const rows = entries.map(e => {
       const calc = calculateWeekPay([e], settings);
-      return [e.date, e.hoursWorked || 0, e.isWeekend ? 'Yes' : 'No', calc.regularPay.toFixed(2), calc.otPay.toFixed(2), calc.dtPay.toFixed(2), calc.totalPay.toFixed(2), e.notes || ''];
+      return [e.date, e.hoursWorked || 0, e.shiftDiff || 'none', calc.regularPay.toFixed(2), calc.otPay.toFixed(2), calc.dtPay.toFixed(2), calc.totalPay.toFixed(2), e.notes || ''];
     });
     const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -233,8 +233,6 @@ export default function TimeTracker({ userId, onClose }) {
 function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntries }) {
   const [schedule, setSchedule] = useState(existingSettings?.schedule || '5x8');
   const [baseRate, setBaseRate] = useState(existingSettings?.baseRate?.toString() || '');
-  const [weekendDiff, setWeekendDiff] = useState(existingSettings?.weekendDiff?.toString() ?? '10');
-  const [weekendDiffAppliesTo, setWeekendDiffAppliesTo] = useState(existingSettings?.weekendDiffAppliesTo || 'base');
   const [otThreshold, setOtThreshold] = useState(existingSettings?.otThreshold?.toString() || '40');
   const [dtThreshold, setDtThreshold] = useState(existingSettings?.dtThreshold?.toString() || '52');
   const [otMultiplier, setOtMultiplier] = useState(existingSettings?.otMultiplier?.toString() || '1.5');
@@ -254,8 +252,6 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
     const newSettings = {
       schedule,
       baseRate: parseFloat(baseRate),
-      weekendDiff: parseFloat(weekendDiff) || 0,
-      weekendDiffAppliesTo,
       otThreshold: parseFloat(otThreshold) || 40,
       dtThreshold: parseFloat(dtThreshold) || 52,
       otMultiplier: parseFloat(otMultiplier) || 1.5,
@@ -285,9 +281,7 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
       if (entryDate >= startDate) {
         return {
           ...entry,
-          baseRate: pendingSettings.baseRate,
-          weekendDiff: pendingSettings.weekendDiff,
-          weekendDiffAppliesTo: pendingSettings.weekendDiffAppliesTo
+          baseRate: pendingSettings.baseRate
         };
       }
       return entry;
@@ -351,24 +345,8 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
               <label>Base Hourly Rate *</label>
               <div className="input-with-prefix"><span>$</span><input type="number" step="0.01" value={baseRate} onChange={e => setBaseRate(e.target.value)} placeholder="38.18" required /></div>
             </div>
-            <div className="form-group">
-              <label>Weekend Differential</label>
-              <div className="input-with-suffix"><input type="number" step="0.1" value={weekendDiff} onChange={e => setWeekendDiff(e.target.value)} placeholder="10" /><span>%</span></div>
-            </div>
           </div>
-          <div className="weekend-applies-to">
-            <label className="applies-label">Weekend diff applies to:</label>
-            <div className="applies-options">
-              <label className={`applies-option ${weekendDiffAppliesTo === 'base' ? 'selected' : ''}`}>
-                <input type="radio" name="weekendApplies" value="base" checked={weekendDiffAppliesTo === 'base'} onChange={() => setWeekendDiffAppliesTo('base')} />
-                <span>First 40hrs only</span>
-              </label>
-              <label className={`applies-option ${weekendDiffAppliesTo === 'all' ? 'selected' : ''}`}>
-                <input type="radio" name="weekendApplies" value="all" checked={weekendDiffAppliesTo === 'all'} onChange={() => setWeekendDiffAppliesTo('all')} />
-                <span>All hours (incl OT)</span>
-              </label>
-            </div>
-          </div>
+          <p className="setup-hint">Shift differential (+10%) is selected per entry when adding hours.</p>
         </div>
 
         <div className="setup-section">
@@ -408,14 +386,9 @@ function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntr
 function EntryForm({ settings, entries, onAdd }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [hoursWorked, setHoursWorked] = useState('');
-  const [isWeekend, setIsWeekend] = useState(false);
+  const [shiftDiff, setShiftDiff] = useState('none'); // 'none', 'base', 'all'
   const [isHoliday, setIsHoliday] = useState(false);
   const [notes, setNotes] = useState('');
-
-  useEffect(() => {
-    const d = new Date(date + 'T12:00:00');
-    setIsWeekend(d.getDay() === 0 || d.getDay() === 6);
-  }, [date]);
 
   if (!settings) return <div className="loading">Loading...</div>;
 
@@ -430,19 +403,16 @@ function EntryForm({ settings, entries, onAdd }) {
     e.preventDefault();
     const hours = parseFloat(hoursWorked) || 0;
     if (hours <= 0 && !isHoliday) { alert('Please enter hours worked'); return; }
-    // Save current rate settings with entry so historical entries keep their original rates
     onAdd({ 
       date, 
       hoursWorked: hours, 
-      isWeekend, 
+      shiftDiff,
       isHoliday, 
       notes,
-      // Capture rate at time of entry
-      baseRate: settings.baseRate,
-      weekendDiff: settings.weekendDiff,
-      weekendDiffAppliesTo: settings.weekendDiffAppliesTo
+      baseRate: settings.baseRate
     });
     setHoursWorked('');
+    setShiftDiff('none');
     setIsHoliday(false);
     setNotes('');
   };
@@ -450,7 +420,7 @@ function EntryForm({ settings, entries, onAdd }) {
   const quickButtons = settings.schedule === '4x10' ? [10, 12, 8] : [8, 10, 12];
   const previewHours = parseFloat(hoursWorked) || 0;
   const previewWeekTotal = weekHoursSoFar + previewHours;
-  const previewEntry = { date, hoursWorked: previewHours, isWeekend, isHoliday };
+  const previewEntry = { date, hoursWorked: previewHours, shiftDiff, isHoliday };
   const previewCalc = calculateWeekPay([...weekEntries, previewEntry], settings);
 
   return (
@@ -464,6 +434,24 @@ function EntryForm({ settings, entries, onAdd }) {
       <div className="form-group">
         <label>Date</label>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+      </div>
+
+      <div className="form-group">
+        <label>Shift Differential (+10%)</label>
+        <div className="shift-diff-options">
+          <label className={`shift-option ${shiftDiff === 'none' ? 'selected' : ''}`}>
+            <input type="radio" name="shiftDiff" value="none" checked={shiftDiff === 'none'} onChange={() => setShiftDiff('none')} />
+            <span>None</span>
+          </label>
+          <label className={`shift-option ${shiftDiff === 'base' ? 'selected' : ''}`}>
+            <input type="radio" name="shiftDiff" value="base" checked={shiftDiff === 'base'} onChange={() => setShiftDiff('base')} />
+            <span>First 40hrs</span>
+          </label>
+          <label className={`shift-option ${shiftDiff === 'all' ? 'selected' : ''}`}>
+            <input type="radio" name="shiftDiff" value="all" checked={shiftDiff === 'all'} onChange={() => setShiftDiff('all')} />
+            <span>All Hours</span>
+          </label>
+        </div>
       </div>
 
       <div className="holiday-toggle">
@@ -497,7 +485,7 @@ function EntryForm({ settings, entries, onAdd }) {
             {previewCalc.regularHours > 0 && <div className="preview-row"><span>Regular ({previewCalc.regularHours}h):</span><span>${previewCalc.regularPay.toFixed(2)}</span></div>}
             {previewCalc.otHours > 0 && <div className="preview-row ot"><span>OT ({previewCalc.otHours}h × {settings.otMultiplier}):</span><span>${previewCalc.otPay.toFixed(2)}</span></div>}
             {previewCalc.dtHours > 0 && <div className="preview-row dt"><span>DT ({previewCalc.dtHours}h × {settings.dtMultiplier}):</span><span>${previewCalc.dtPay.toFixed(2)}</span></div>}
-            {previewCalc.weekendBonus > 0 && <div className="preview-row bonus"><span>Weekend Bonus:</span><span>+${previewCalc.weekendBonus.toFixed(2)}</span></div>}
+            {previewCalc.shiftDiffBonus > 0 && <div className="preview-row bonus"><span>Shift Diff (+10%):</span><span>+${previewCalc.shiftDiffBonus.toFixed(2)}</span></div>}
             {isHoliday && <div className="preview-row holiday"><span>🎄 Holiday (10h):</span><span>+${(settings.baseRate * 10).toFixed(2)}</span></div>}
           </div>
           <div className="preview-total"><span>Week Total:</span><span>${(previewCalc.totalPay + (isHoliday ? settings.baseRate * 10 : 0)).toFixed(2)}</span></div>
@@ -512,29 +500,21 @@ function EntryForm({ settings, entries, onAdd }) {
 function EditEntryForm({ entry, settings, onSave, onCancel }) {
   const [date, setDate] = useState(entry.date);
   const [hoursWorked, setHoursWorked] = useState(entry.hoursWorked?.toString() || '');
-  const [isWeekend, setIsWeekend] = useState(entry.isWeekend || false);
+  const [shiftDiff, setShiftDiff] = useState(entry.shiftDiff || 'none');
   const [isHoliday, setIsHoliday] = useState(entry.isHoliday || false);
   const [notes, setNotes] = useState(entry.notes || '');
-
-  useEffect(() => {
-    const d = new Date(date + 'T12:00:00');
-    setIsWeekend(d.getDay() === 0 || d.getDay() === 6);
-  }, [date]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const hours = parseFloat(hoursWorked) || 0;
     if (hours <= 0 && !isHoliday) { alert('Please enter hours worked'); return; }
-    // Keep original rate if entry had one, otherwise use current settings
     onSave({ 
       date, 
       hoursWorked: hours, 
-      isWeekend, 
+      shiftDiff,
       isHoliday, 
       notes,
-      baseRate: entry.baseRate || settings.baseRate,
-      weekendDiff: entry.weekendDiff ?? settings.weekendDiff,
-      weekendDiffAppliesTo: entry.weekendDiffAppliesTo || settings.weekendDiffAppliesTo
+      baseRate: entry.baseRate || settings.baseRate
     });
   };
 
@@ -547,6 +527,24 @@ function EditEntryForm({ entry, settings, onSave, onCancel }) {
         <div className="form-group">
           <label>Date</label>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+        </div>
+
+        <div className="form-group">
+          <label>Shift Differential (+10%)</label>
+          <div className="shift-diff-options">
+            <label className={`shift-option ${shiftDiff === 'none' ? 'selected' : ''}`}>
+              <input type="radio" name="editShiftDiff" value="none" checked={shiftDiff === 'none'} onChange={() => setShiftDiff('none')} />
+              <span>None</span>
+            </label>
+            <label className={`shift-option ${shiftDiff === 'base' ? 'selected' : ''}`}>
+              <input type="radio" name="editShiftDiff" value="base" checked={shiftDiff === 'base'} onChange={() => setShiftDiff('base')} />
+              <span>First 40hrs</span>
+            </label>
+            <label className={`shift-option ${shiftDiff === 'all' ? 'selected' : ''}`}>
+              <input type="radio" name="editShiftDiff" value="all" checked={shiftDiff === 'all'} onChange={() => setShiftDiff('all')} />
+              <span>All Hours</span>
+            </label>
+          </div>
         </div>
 
         <div className="holiday-toggle">
@@ -634,7 +632,7 @@ function HistoryView({ entries, settings, onDelete, onEdit }) {
                       <div className="entry-date">
                         <span className="date-day">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
                         <span className="date-num">{d.getDate()}</span>
-                        {entry.isWeekend && <span className="weekend-badge">WE</span>}
+                        {entry.shiftDiff && entry.shiftDiff !== 'none' && <span className="shift-badge">+10%</span>}
                         {entry.isHoliday && <span className="holiday-badge">🎄</span>}
                       </div>
                       <div className="entry-hours">
@@ -755,25 +753,21 @@ function getWeekStart(date) {
 }
 
 function calculateWeekPay(weekEntries, settings) {
-  if (!settings || !weekEntries.length) return { regularHours: 0, otHours: 0, dtHours: 0, holidayHours: 0, regularPay: 0, otPay: 0, dtPay: 0, holidayPay: 0, weekendBonus: 0, totalPay: 0 };
+  if (!settings || !weekEntries.length) return { regularHours: 0, otHours: 0, dtHours: 0, holidayHours: 0, regularPay: 0, otPay: 0, dtPay: 0, holidayPay: 0, shiftDiffBonus: 0, totalPay: 0 };
 
-  const { baseRate: defaultBaseRate, weekendDiff: defaultWeekendDiff, weekendDiffAppliesTo: defaultWeekendDiffAppliesTo, otThreshold, dtThreshold, otMultiplier, dtMultiplier } = settings;
+  const { baseRate: defaultBaseRate, otThreshold, dtThreshold, otMultiplier, dtMultiplier } = settings;
   
   const sorted = [...weekEntries].sort((a, b) => a.date.localeCompare(b.date));
   
   let runningHours = 0;
   let regularHours = 0, otHours = 0, dtHours = 0, holidayHours = 0;
-  let regularPay = 0, otPay = 0, dtPay = 0, holidayPay = 0, weekendBonus = 0;
+  let regularPay = 0, otPay = 0, dtPay = 0, holidayPay = 0, shiftDiffBonus = 0;
 
   sorted.forEach(entry => {
-    // Use entry's saved rate if available, otherwise fall back to current settings
     const entryBaseRate = entry.baseRate || defaultBaseRate;
-    const entryWeekendDiff = entry.weekendDiff ?? defaultWeekendDiff;
-    const entryWeekendDiffAppliesTo = entry.weekendDiffAppliesTo || defaultWeekendDiffAppliesTo;
-    const applyWeekendToAll = entryWeekendDiffAppliesTo === 'all';
+    const shiftDiff = entry.shiftDiff || 'none'; // 'none', 'base', 'all'
     
     const hours = entry.hoursWorked || 0;
-    const weekendMult = entry.isWeekend ? (1 + entryWeekendDiff / 100) : 1;
     
     // Holiday bonus: 10 hours at entry's base rate
     if (entry.isHoliday) {
@@ -801,27 +795,36 @@ function calculateWeekPay(weekEntries, settings) {
     otHours += entryOT;
     dtHours += entryDT;
     
-    let entryRegularPay, entryOTPay, entryDTPay;
+    // Base pay without any differential
+    const baseRegularPay = entryRegular * entryBaseRate;
+    const baseOTPay = entryOT * entryBaseRate * otMultiplier;
+    const baseDTPay = entryDT * entryBaseRate * dtMultiplier;
     
-    if (applyWeekendToAll) {
-      const effectiveRate = entryBaseRate * weekendMult;
-      entryRegularPay = entryRegular * effectiveRate;
-      entryOTPay = entryOT * effectiveRate * otMultiplier;
-      entryDTPay = entryDT * effectiveRate * dtMultiplier;
+    let entryRegularPay, entryOTPay, entryDTPay, entryShiftBonus = 0;
+    
+    if (shiftDiff === 'all') {
+      // 10% on all hours including OT/DT
+      entryRegularPay = baseRegularPay * 1.1;
+      entryOTPay = baseOTPay * 1.1;
+      entryDTPay = baseDTPay * 1.1;
+      entryShiftBonus = (entryRegularPay + entryOTPay + entryDTPay) - (baseRegularPay + baseOTPay + baseDTPay);
+    } else if (shiftDiff === 'base') {
+      // 10% only on first 40hrs (regular hours)
+      entryRegularPay = baseRegularPay * 1.1;
+      entryOTPay = baseOTPay;
+      entryDTPay = baseDTPay;
+      entryShiftBonus = entryRegularPay - baseRegularPay;
     } else {
-      entryRegularPay = entryRegular * entryBaseRate * weekendMult;
-      entryOTPay = entryOT * entryBaseRate * otMultiplier;
-      entryDTPay = entryDT * entryBaseRate * dtMultiplier;
+      // No differential
+      entryRegularPay = baseRegularPay;
+      entryOTPay = baseOTPay;
+      entryDTPay = baseDTPay;
     }
     
     regularPay += entryRegularPay;
     otPay += entryOTPay;
     dtPay += entryDTPay;
-    
-    if (entry.isWeekend) {
-      const basePayNoWeekend = entryRegular * entryBaseRate + entryOT * entryBaseRate * otMultiplier + entryDT * entryBaseRate * dtMultiplier;
-      weekendBonus += (entryRegularPay + entryOTPay + entryDTPay) - basePayNoWeekend;
-    }
+    shiftDiffBonus += entryShiftBonus;
   });
 
   return {
@@ -833,7 +836,7 @@ function calculateWeekPay(weekEntries, settings) {
     otPay,
     dtPay,
     holidayPay,
-    weekendBonus,
+    shiftDiffBonus,
     totalPay: regularPay + otPay + dtPay + holidayPay
   };
 }
