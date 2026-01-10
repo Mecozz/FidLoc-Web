@@ -172,6 +172,8 @@ function EntryForm({ settings, onAdd }) {
     setIsWeekend(d.getDay() === 0 || d.getDay() === 6);
   }, [date]);
 
+  if (!settings) return <div className="loading">Loading...</div>;
+
   const handleSubmit = (e) => {
     e.preventDefault();
     const reg = parseFloat(regularHours) || 0;
@@ -213,6 +215,7 @@ function EntryForm({ settings, onAdd }) {
 function HistoryView({ entries, settings, onDelete }) {
   const [expandedWeek, setExpandedWeek] = useState(null);
   
+  if (!settings) return <div className="loading">Loading...</div>;
   if (entries.length === 0) return <div className="empty-history"><Calendar size={48} /><p>No entries yet</p></div>;
 
   const groupedByWeek = entries.reduce((acc, entry) => {
@@ -259,6 +262,7 @@ function HistoryView({ entries, settings, onDelete }) {
 }
 
 function SummaryView({ entries, settings }) {
+  if (!settings) return <div className="loading">Loading...</div>;
   const now = new Date();
   const thisWeekStart = new Date(now); thisWeekStart.setDate(now.getDate() - now.getDay()); thisWeekStart.setHours(0, 0, 0, 0);
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
