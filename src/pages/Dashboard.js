@@ -4,7 +4,7 @@ import { db, functions, auth, EmailAuthProvider, linkWithCredential } from '../f
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
 import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, Timestamp, orderBy, limit, setDoc } from 'firebase/firestore';
-import { MapPin, LogOut, Navigation, Copy, Search, Plus, X, Share2, List, Map as MapIcon, Wifi, WifiOff, RefreshCw, Edit2, Trash2, History, RotateCcw, Trash, Sun, Moon, Monitor, ExternalLink, Users, Settings, ChevronRight, Mail, UserPlus, Shield, UserMinus, Crown, Package, Building, ClipboardList, CheckCircle, AlertTriangle, ScanLine, StopCircle, Ruler, Clock } from 'lucide-react';
+import { MapPin, LogOut, Navigation, Copy, Search, Plus, X, Share2, List, Map as MapIcon, Wifi, WifiOff, RefreshCw, Edit2, Trash2, History, RotateCcw, Trash, Sun, Moon, Monitor, ExternalLink, Users, Settings, ChevronRight, Mail, UserPlus, Shield, UserMinus, Crown, Package, Building, ClipboardList, CheckCircle, AlertTriangle, ScanLine, StopCircle, Ruler, Clock, BarChart3 } from 'lucide-react';
 import TimeTracker from '../components/TimeTracker';
 import { useParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
@@ -66,6 +66,8 @@ export default function Dashboard() {
   const [theme, setTheme] = useState(themeManager.getTheme());
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [rateLimitMessage, setRateLimitMessage] = useState(null);
+  const [memberCount, setMemberCount] = useState(0);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   // Rate limiting for non-admin users
   const RATE_LIMIT_STORAGE_KEY = 'fidloc_rate_limits';
@@ -137,6 +139,20 @@ export default function Dashboard() {
   useEffect(() => { const loadPending = async () => setPendingLocations(await offlineQueue.getPendingLocations()); loadPending(); return offlineQueue.subscribe(setPendingLocations); }, []);
   useEffect(() => { if (navigator.geolocation) { navigator.geolocation.getCurrentPosition((pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => {}); } }, []);
   useEffect(() => { if (!userOrg) { setLoading(false); return; } const q = query(collection(db, 'organizations', userOrg, 'locations')); return onSnapshot(q, (snap) => { const locs = snap.docs.map(d => ({ id: d.id, ...d.data() })); setLocations(locs); setLoading(false); setLastSynced(new Date()); if (locationId) { const found = locs.find(l => l.id === locationId); if (found) setSelectedLocation(found); } }, () => setLoading(false)); }, [userOrg, locationId]);
+  useEffect(() => { if (!userOrg) return; const q = query(collection(db, 'organizations', userOrg, 'members')); return onSnapshot(q, (snap) => setMemberCount(snap.docs.length), () => {}); }, [userOrg]);
+
+  // Session timeout warning (55 min warning before 1hr Firebase token expires)
+  useEffect(() => {
+    const SESSION_WARNING_TIME = 55 * 60 * 1000; // 55 minutes
+    const timer = setTimeout(() => {
+      if (window.confirm('Your session will expire soon. Click OK to stay logged in, or Cancel to log out.')) {
+        auth.currentUser?.getIdToken(true); // Force token refresh
+      } else {
+        logout();
+      }
+    }, SESSION_WARNING_TIME);
+    return () => clearTimeout(timer);
+  }, [logout]);
 
   const handleManualSync = async () => { if (!isOnline || syncing) return; setSyncing(true); try { await offlineQueue.syncQueue(); setLastSynced(new Date()); } catch {} setSyncing(false); };
   const handleEdit = (loc) => {
@@ -192,7 +208,7 @@ export default function Dashboard() {
         <div className="menu-header"><div className="menu-logo"><MapPin size={24} color="white" /><span>FidLoc</span></div><button onClick={() => setShowMenu(false)} className="menu-close"><X size={24} /></button></div>
         <div className="menu-user"><div className="menu-user-email">{user?.email}</div><div className="menu-user-role">{userRole}</div></div>
         <div className="menu-section"><div className="menu-section-title">Appearance</div><div className="theme-selector"><button onClick={() => setThemeMode('light')} className={`theme-option ${theme === 'light' ? 'active' : ''}`}><Sun size={18} /><span>Light</span></button><button onClick={() => setThemeMode('dark')} className={`theme-option ${theme === 'dark' ? 'active' : ''}`}><Moon size={18} /><span>Dark</span></button><button onClick={() => setThemeMode('system')} className={`theme-option ${theme === 'system' ? 'active' : ''}`}><Monitor size={18} /><span>Auto</span></button></div></div>
-        {canViewActivityLog && (<div className="menu-section"><div className="menu-section-title">Administration</div><button onClick={() => { setShowActivityLog(true); setShowMenu(false); }} className="menu-item"><History size={20} /><span>Activity Log</span><ChevronRight size={18} /></button>{userRole === 'owner' && (<button onClick={() => { setShowTrash(true); setShowMenu(false); }} className="menu-item"><Trash size={20} /><span>Trash</span><ChevronRight size={18} /></button>)}<button onClick={() => { setShowTeamMembers(true); setShowMenu(false); }} className="menu-item"><Users size={20} /><span>Team Members</span><ChevronRight size={18} /></button></div>)}
+        {canViewActivityLog && (<div className="menu-section"><div className="menu-section-title">Administration</div><button onClick={() => { setShowActivityLog(true); setShowMenu(false); }} className="menu-item"><History size={20} /><span>Activity Log</span><ChevronRight size={18} /></button>{userRole === 'owner' && (<button onClick={() => { setShowTrash(true); setShowMenu(false); }} className="menu-item"><Trash size={20} /><span>Trash</span><ChevronRight size={18} /></button>)}<button onClick={() => { setShowTeamMembers(true); setShowMenu(false); }} className="menu-item"><Users size={20} /><span>Team Members</span><span className="menu-badge">{memberCount}</span><ChevronRight size={18} /></button><button onClick={() => { setShowAnalytics(true); setShowMenu(false); }} className="menu-item"><BarChart3 size={20} /><span>Analytics</span><ChevronRight size={18} /></button></div>)}
         {canViewActivityLog && (<div className="menu-section"><div className="menu-section-title">Inventory</div><button onClick={() => { setShowInventory(true); setShowMenu(false); }} className="menu-item"><ClipboardList size={20} /><span>My Inventory</span><ChevronRight size={18} /></button><button onClick={() => { setShowEquipmentOrders(true); setShowMenu(false); }} className="menu-item"><Package size={20} /><span>Equipment Orders</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://forms.office.com/pages/responsepage.aspx?id=XZI8ME5OQUqmnyZJVrSH1lwcfjB4TM5Dqw11fNLOPYxUMVNQSjU1QjhXV1dLSzZZUTdJOFhGVTRQSS4u&route=shorturl')} className="menu-item"><ExternalLink size={20} /><span>Inventory Corrections</span><ChevronRight size={18} /></button></div>)}
         <div className="menu-section"><div className="menu-section-title">Quick Links</div><button onClick={() => { setShowDropMeasure(true); setShowMenu(false); }} className="menu-item"><Ruler size={20} /><span>Drop Measure</span><ChevronRight size={18} /></button><button onClick={() => { setShowTimeTracker(true); setShowMenu(false); }} className="menu-item"><Clock size={20} /><span>Time Tracker</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://cnslonline.sharepoint.com/sites/Intranet')} className="menu-item"><Building size={20} /><span>Intranet-Home</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://fairpoint.etadirect.com')} className="menu-item"><ExternalLink size={20} /><span>Oracle</span><ChevronRight size={18} /></button><button onClick={() => { setShowSettings(true); setShowMenu(false); }} className="menu-item"><Settings size={20} /><span>Settings</span><ChevronRight size={18} /></button></div>
         <div className="menu-section"><div className="menu-section-title">Requires VPN</div><button onClick={() => openExternalLink('http://resolve.consolidated.com/resolve/sir/index.html')} className="menu-item"><ExternalLink size={20} /><span>Resolve</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://consolidated.okta.com')} className="menu-item"><ExternalLink size={20} /><span>My Apps Dashboard</span><ChevronRight size={18} /></button><button onClick={() => openExternalLink('https://netcracker.consolidated.com/cci_custom/jumpStart.jsp')} className="menu-item"><ExternalLink size={20} /><span>Netcracker</span><ChevronRight size={18} /></button></div>
@@ -200,7 +216,7 @@ export default function Dashboard() {
         <div className="menu-footer"><button onClick={logout} className="menu-logout"><LogOut size={20} /><span>Sign Out</span></button><div className="menu-version">FidLoc v1.0</div></div>
       </div>
 
-      <header className="header"><div className="header-content"><div className="header-left"><button onClick={() => setShowMenu(true)} className="menu-button"><div className="header-icon"><MapPin size={20} color="white" /></div></button><div><h1>FidLoc</h1><span className="role-badge">{userRole}</span></div></div><div className="header-right"><div className={'status-indicator ' + (isOnline ? 'online' : 'offline')}>{isOnline ? <Wifi size={16} /> : <WifiOff size={16} />}</div>{pendingLocations.length > 0 && isOnline && <button onClick={handleManualSync} className={'sync-button ' + (syncing ? 'syncing' : '')} disabled={syncing}><RefreshCw size={18} className={syncing ? 'spinning' : ''} /><span className="pending-count">{pendingLocations.length}</span></button>}<div className="view-toggle"><button onClick={() => setViewMode('list')} className={'toggle-btn ' + (viewMode === 'list' ? 'active' : '')}><List size={18} /></button><button onClick={() => setViewMode('map')} className={'toggle-btn ' + (viewMode === 'map' ? 'active' : '')}><MapIcon size={18} /></button></div>{canAddLocations && <button onClick={() => setShowAddModal(true)} className="add-button"><Plus size={20} /></button>}</div></div></header>
+      <header className="header"><div className="header-content"><div className="header-left"><button onClick={() => setShowMenu(true)} className="menu-button"><div className="header-icon"><MapPin size={20} color="white" /></div></button><div><h1>FidLoc</h1><span className="role-badge">{userRole}</span></div></div><div className="header-right"><div className="sync-info" title={'Last synced: ' + lastSynced.toLocaleTimeString()}><span className="last-sync-time">{formatTimeAgo(lastSynced)}</span></div><div className={'status-indicator ' + (isOnline ? 'online' : 'offline')}>{isOnline ? <Wifi size={16} /> : <WifiOff size={16} />}</div>{pendingLocations.length > 0 && isOnline && <button onClick={handleManualSync} className={'sync-button ' + (syncing ? 'syncing' : '')} disabled={syncing}><RefreshCw size={18} className={syncing ? 'spinning' : ''} /><span className="pending-count">{pendingLocations.length}</span></button>}<div className="view-toggle"><button onClick={() => setViewMode('list')} className={'toggle-btn ' + (viewMode === 'list' ? 'active' : '')}><List size={18} /></button><button onClick={() => setViewMode('map')} className={'toggle-btn ' + (viewMode === 'map' ? 'active' : '')}><MapIcon size={18} /></button></div>{canAddLocations && <button onClick={() => setShowAddModal(true)} className="add-button"><Plus size={20} /></button>}</div></div></header>
 
       {!isOnline && <div className="offline-banner"><WifiOff size={16} /><span>You are offline</span><span className="last-synced">Last synced: {formatTimeAgo(lastSynced)}</span></div>}
       {pendingLocations.length > 0 && isOnline && <div className="pending-banner"><RefreshCw size={16} /><span>{pendingLocations.length} pending</span><button onClick={handleManualSync} disabled={syncing}>{syncing ? 'Syncing...' : 'Sync Now'}</button></div>}
@@ -223,6 +239,7 @@ export default function Dashboard() {
       {showSettings && <SettingsModal user={user} locations={locations} onClose={() => setShowSettings(false)} />}
       {showDropMeasure && <DropMeasureModal onClose={() => setShowDropMeasure(false)} />}
       {showTimeTracker && <TimeTracker userId={user?.uid} onClose={() => setShowTimeTracker(false)} />}
+      {showAnalytics && <AnalyticsModal userOrg={userOrg} locations={locations} memberCount={memberCount} onClose={() => setShowAnalytics(false)} />}
       {deleteConfirm && <DeleteConfirmModal location={deleteConfirm} onConfirm={() => handleDelete(deleteConfirm)} onCancel={() => setDeleteConfirm(null)} />}
       {rateLimitMessage && <div className="rate-limit-toast">{rateLimitMessage}</div>}
     </div>
@@ -263,12 +280,13 @@ function ActivityLogModal({ userOrg, userRole, onClose }) {
 }
 
 function TrashModal({ userOrg, userEmail, onClose }) {
-  const [trashedItems, setTrashedItems] = useState([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [restoring, setRestoring] = useState(null); const [permDeleting, setPermDeleting] = useState(null);
+  const [trashedItems, setTrashedItems] = useState([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [restoring, setRestoring] = useState(null); const [permDeleting, setPermDeleting] = useState(null); const [emptyingTrash, setEmptyingTrash] = useState(false);
   useEffect(() => { const q = query(collection(db, 'organizations', userOrg, 'trash'), orderBy('deletedAt', 'desc')); return onSnapshot(q, (snap) => { setTrashedItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); }, (err) => { console.error('Trash load error:', err); setError('Unable to load trash.'); setLoading(false); }); }, [userOrg]);
   const handleRestore = async (item) => { setRestoring(item.id); try { const restoreData = { ...item }; delete restoreData.deletedBy; delete restoreData.deletedAt; delete restoreData.originalId; delete restoreData.id; restoreData.restoredBy = userEmail; restoreData.restoredAt = Timestamp.now(); await setDoc(doc(db, 'organizations', userOrg, 'locations', item.id), restoreData); await deleteDoc(doc(db, 'organizations', userOrg, 'trash', item.id)); await logActivity(userOrg, 'restored', item.name, userEmail); } catch (err) { console.error('Restore failed:', err); setError('Failed to restore.'); } setRestoring(null); };
   const handlePermanentDelete = async (item) => { setPermDeleting(item.id); try { await deleteDoc(doc(db, 'organizations', userOrg, 'trash', item.id)); await logActivity(userOrg, 'permanently deleted', item.name, userEmail); } catch (err) { console.error('Permanent delete failed:', err); setError('Failed to delete.'); } setPermDeleting(null); };
+  const handleEmptyTrash = async () => { if (!window.confirm('Permanently delete ALL ' + trashedItems.length + ' items in trash? This cannot be undone.')) return; setEmptyingTrash(true); setError(''); try { for (const item of trashedItems) { await deleteDoc(doc(db, 'organizations', userOrg, 'trash', item.id)); } await logActivity(userOrg, 'emptied trash', trashedItems.length + ' items', userEmail); } catch (err) { console.error('Empty trash failed:', err); setError('Failed to empty trash.'); } setEmptyingTrash(false); };
   var formatTime = (ts) => ts ? (ts.toDate ? ts.toDate() : new Date(ts)).toLocaleString() : '';
-  return (<div className="modal-overlay"><div className="modal trash-modal"><div className="modal-header"><h2><Trash size={20} /> Trash</h2><button onClick={onClose} className="close-button"><X size={24} /></button></div><div className="trash-content">{loading ? <div className="loading"><div className="spinner"></div></div> : error ? <div className="error-message">{error}</div> : trashedItems.length === 0 ? <div className="empty-state"><Trash size={48} /><p>Trash is empty</p></div> : (<div className="trash-list">{trashedItems.map(item => (<div key={item.id} className="trash-item"><div className="trash-item-info"><div className="trash-item-name">{item.name}</div><div className="trash-item-type">{normalizeType(item.locationType)}</div><div className="trash-item-address">{item.address}</div><div className="trash-item-meta">Deleted by {item.deletedBy} on {formatTime(item.deletedAt)}</div></div><div className="trash-item-actions"><button onClick={() => handleRestore(item)} disabled={restoring === item.id} className="restore-button"><RotateCcw size={16} /> {restoring === item.id ? 'Restoring...' : 'Restore'}</button><button onClick={() => handlePermanentDelete(item)} disabled={permDeleting === item.id} className="perm-delete-button"><Trash2 size={16} /> {permDeleting === item.id ? 'Deleting...' : 'Delete Forever'}</button></div></div>))}</div>)}</div></div></div>);
+  return (<div className="modal-overlay"><div className="modal trash-modal"><div className="modal-header"><h2><Trash size={20} /> Trash</h2><div className="modal-header-actions">{trashedItems.length > 0 && <button onClick={handleEmptyTrash} disabled={emptyingTrash} className="empty-trash-btn">{emptyingTrash ? 'Emptying...' : 'Empty Trash'}</button>}<button onClick={onClose} className="close-button"><X size={24} /></button></div></div><div className="trash-content">{loading ? <div className="loading"><div className="spinner"></div></div> : error ? <div className="error-message">{error}</div> : trashedItems.length === 0 ? <div className="empty-state"><Trash size={48} /><p>Trash is empty</p></div> : (<div className="trash-list">{trashedItems.map(item => (<div key={item.id} className="trash-item"><div className="trash-item-info"><div className="trash-item-name">{item.name}</div><div className="trash-item-type">{normalizeType(item.locationType)}</div><div className="trash-item-address">{item.address}</div><div className="trash-item-meta">Deleted by {item.deletedBy} on {formatTime(item.deletedAt)}</div></div><div className="trash-item-actions"><button onClick={() => handleRestore(item)} disabled={restoring === item.id} className="restore-button"><RotateCcw size={16} /> {restoring === item.id ? 'Restoring...' : 'Restore'}</button><button onClick={() => handlePermanentDelete(item)} disabled={permDeleting === item.id} className="perm-delete-button"><Trash2 size={16} /> {permDeleting === item.id ? 'Deleting...' : 'Delete Forever'}</button></div></div>))}</div>)}</div></div></div>);
 }
 
 function TeamMembersModal({ userOrg, userEmail, userRole, currentUserId, onClose }) {
@@ -1770,6 +1788,149 @@ function DropMeasureModal({ onClose }) {
             </div>
           )}
 
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsModal({ userOrg, locations, memberCount, onClose }) {
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'organizations', userOrg, 'activityLog'), orderBy('timestamp', 'desc'), limit(500));
+    return onSnapshot(q, (snap) => {
+      setActivities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    }, () => setLoading(false));
+  }, [userOrg]);
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const weekStart = new Date(todayStart); weekStart.setDate(weekStart.getDate() - 7);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const getActivityDate = (a) => a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+  
+  const todayActivities = activities.filter(a => getActivityDate(a) >= todayStart);
+  const weekActivities = activities.filter(a => getActivityDate(a) >= weekStart);
+  const monthActivities = activities.filter(a => getActivityDate(a) >= monthStart);
+
+  const countByAction = (acts, action) => acts.filter(a => a.action === action).length;
+
+  const getTopContributors = (acts) => {
+    const counts = {};
+    acts.forEach(a => { counts[a.userEmail] = (counts[a.userEmail] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  };
+
+  const getLocationsByType = () => {
+    const counts = { Hub: 0, Garage: 0, Hut: 0, CO: 0 };
+    locations.forEach(loc => {
+      const type = normalizeType(loc.locationType);
+      counts[type] = (counts[type] || 0) + 1;
+    });
+    return counts;
+  };
+
+  const typeColors = { Hub: '#3b82f6', Garage: '#22c55e', Hut: '#f97316', CO: '#a855f7' };
+  const typeCounts = getLocationsByType();
+  const topWeekly = getTopContributors(weekActivities);
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal analytics-modal">
+        <div className="modal-header">
+          <h2><BarChart3 size={20} /> Analytics</h2>
+          <button onClick={onClose} className="close-button"><X size={24} /></button>
+        </div>
+        <div className="analytics-content">
+          {loading ? <div className="loading"><div className="spinner"></div></div> : (
+            <>
+              <div className="analytics-section">
+                <h3>Overview</h3>
+                <div className="stats-grid">
+                  <div className="stat-card">
+                    <div className="stat-value">{locations.length}</div>
+                    <div className="stat-label">Total Locations</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{memberCount}</div>
+                    <div className="stat-label">Team Members</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{locations.filter(l => l.hasBathroom).length}</div>
+                    <div className="stat-label">With Bathroom</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{locations.filter(l => l.requiresLadder).length}</div>
+                    <div className="stat-label">Need Ladder</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="analytics-section">
+                <h3>Locations by Type</h3>
+                <div className="type-bars">
+                  {Object.entries(typeCounts).map(([type, count]) => (
+                    <div key={type} className="type-bar-row">
+                      <span className="type-bar-label">{type}</span>
+                      <div className="type-bar-container">
+                        <div className="type-bar" style={{ width: (count / locations.length * 100) + '%', background: typeColors[type] }}></div>
+                      </div>
+                      <span className="type-bar-count">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="analytics-section">
+                <h3>Activity Summary</h3>
+                <div className="activity-stats">
+                  <div className="activity-period">
+                    <div className="period-label">Today</div>
+                    <div className="period-stats">
+                      <span className="created">+{countByAction(todayActivities, 'created')}</span>
+                      <span className="edited">✏️{countByAction(todayActivities, 'edited')}</span>
+                      <span className="deleted">-{countByAction(todayActivities, 'deleted')}</span>
+                    </div>
+                  </div>
+                  <div className="activity-period">
+                    <div className="period-label">This Week</div>
+                    <div className="period-stats">
+                      <span className="created">+{countByAction(weekActivities, 'created')}</span>
+                      <span className="edited">✏️{countByAction(weekActivities, 'edited')}</span>
+                      <span className="deleted">-{countByAction(weekActivities, 'deleted')}</span>
+                    </div>
+                  </div>
+                  <div className="activity-period">
+                    <div className="period-label">This Month</div>
+                    <div className="period-stats">
+                      <span className="created">+{countByAction(monthActivities, 'created')}</span>
+                      <span className="edited">✏️{countByAction(monthActivities, 'edited')}</span>
+                      <span className="deleted">-{countByAction(monthActivities, 'deleted')}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {topWeekly.length > 0 && (
+                <div className="analytics-section">
+                  <h3>Top Contributors (This Week)</h3>
+                  <div className="contributors-list">
+                    {topWeekly.map(([email, count], i) => (
+                      <div key={email} className="contributor-row">
+                        <span className="contributor-rank">#{i + 1}</span>
+                        <span className="contributor-email">{email.split('@')[0]}</span>
+                        <span className="contributor-count">{count} actions</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

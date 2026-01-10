@@ -829,3 +829,214 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* Menu Badge (member count) */
+.menu-badge {
+  background: var(--accent-color);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+/* Last Sync Time in Header */
+.sync-info {
+  display: flex;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.last-sync-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+/* Empty Trash Button */
+.empty-trash-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+.empty-trash-btn:hover {
+  background: #dc2626;
+}
+
+.empty-trash-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Analytics Modal */
+.analytics-modal {
+  max-width: 500px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.analytics-content {
+  padding: 16px;
+}
+
+.analytics-section {
+  margin-bottom: 24px;
+}
+
+.analytics-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.stat-card {
+  background: var(--bg-secondary);
+  padding: 16px;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.type-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.type-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.type-bar-label {
+  width: 60px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.type-bar-container {
+  flex: 1;
+  height: 24px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.type-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.type-bar-count {
+  width: 30px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.activity-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.activity-period {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.period-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.period-stats {
+  display: flex;
+  gap: 16px;
+}
+
+.period-stats span {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.period-stats .created {
+  color: #22c55e;
+}
+
+.period-stats .edited {
+  color: #3b82f6;
+}
+
+.period-stats .deleted {
+  color: #ef4444;
+}
+
+.contributors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contributor-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.contributor-rank {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-color);
+  width: 30px;
+}
+
+.contributor-email {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.contributor-count {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
