@@ -203,7 +203,7 @@ export default function TimeTracker({ userId, onClose }) {
         </div>
 
         {showSetup ? (
-          <SetupScreen onSave={handleSaveSettings} existingSettings={settings} onCancel={() => settings && setShowSetup(false)} />
+          <SetupScreen onSave={handleSaveSettings} existingSettings={settings} onCancel={() => settings && setShowSetup(false)} entries={entries} onUpdateEntries={setEntries} />
         ) : editingEntry ? (
           <EditEntryForm entry={editingEntry} settings={settings} onSave={(updated) => updateEntry(editingEntry.id, updated)} onCancel={() => setEditingEntry(null)} />
         ) : (
@@ -230,20 +230,28 @@ export default function TimeTracker({ userId, onClose }) {
   );
 }
 
-function SetupScreen({ onSave, existingSettings, onCancel }) {
+function SetupScreen({ onSave, existingSettings, onCancel, entries, onUpdateEntries }) {
   const [schedule, setSchedule] = useState(existingSettings?.schedule || '5x8');
-  const [baseRate, setBaseRate] = useState(existingSettings?.baseRate || '');
-  const [weekendDiff, setWeekendDiff] = useState(existingSettings?.weekendDiff ?? '10');
+  const [baseRate, setBaseRate] = useState(existingSettings?.baseRate?.toString() || '');
+  const [weekendDiff, setWeekendDiff] = useState(existingSettings?.weekendDiff?.toString() ?? '10');
   const [weekendDiffAppliesTo, setWeekendDiffAppliesTo] = useState(existingSettings?.weekendDiffAppliesTo || 'base');
-  const [otThreshold, setOtThreshold] = useState(existingSettings?.otThreshold || '40');
-  const [dtThreshold, setDtThreshold] = useState(existingSettings?.dtThreshold || '52');
-  const [otMultiplier, setOtMultiplier] = useState(existingSettings?.otMultiplier || '1.5');
-  const [dtMultiplier, setDtMultiplier] = useState(existingSettings?.dtMultiplier || '2.0');
+  const [otThreshold, setOtThreshold] = useState(existingSettings?.otThreshold?.toString() || '40');
+  const [dtThreshold, setDtThreshold] = useState(existingSettings?.dtThreshold?.toString() || '52');
+  const [otMultiplier, setOtMultiplier] = useState(existingSettings?.otMultiplier?.toString() || '1.5');
+  const [dtMultiplier, setDtMultiplier] = useState(existingSettings?.dtMultiplier?.toString() || '2.0');
+  
+  // For rate change dialog
+  const [showRateChangeDialog, setShowRateChangeDialog] = useState(false);
+  const [rateChangeStartDate, setRateChangeStartDate] = useState('');
+  const [pendingSettings, setPendingSettings] = useState(null);
+
+  const rateChanged = existingSettings && parseFloat(baseRate) !== existingSettings.baseRate;
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!baseRate || parseFloat(baseRate) <= 0) { alert('Please enter a valid base hourly rate'); return; }
-    onSave({
+    
+    const newSettings = {
       schedule,
       baseRate: parseFloat(baseRate),
       weekendDiff: parseFloat(weekendDiff) || 0,
@@ -252,11 +260,67 @@ function SetupScreen({ onSave, existingSettings, onCancel }) {
       dtThreshold: parseFloat(dtThreshold) || 52,
       otMultiplier: parseFloat(otMultiplier) || 1.5,
       dtMultiplier: parseFloat(dtMultiplier) || 2.0
+    };
+    
+    // If rate changed and we have entries, ask for start date
+    if (rateChanged && entries && entries.length > 0) {
+      setPendingSettings(newSettings);
+      // Default to start of next week (Sunday)
+      const nextSunday = new Date();
+      nextSunday.setDate(nextSunday.getDate() + (7 - nextSunday.getDay()));
+      setRateChangeStartDate(nextSunday.toISOString().split('T')[0]);
+      setShowRateChangeDialog(true);
+    } else {
+      onSave(newSettings);
+    }
+  };
+
+  const applyRateChange = () => {
+    if (!rateChangeStartDate) { alert('Please select a start date'); return; }
+    
+    // Update entries from the start date forward with new rate
+    const startDate = new Date(rateChangeStartDate + 'T00:00:00');
+    const updatedEntries = entries.map(entry => {
+      const entryDate = new Date(entry.date + 'T12:00:00');
+      if (entryDate >= startDate) {
+        return {
+          ...entry,
+          baseRate: pendingSettings.baseRate,
+          weekendDiff: pendingSettings.weekendDiff,
+          weekendDiffAppliesTo: pendingSettings.weekendDiffAppliesTo
+        };
+      }
+      return entry;
     });
+    
+    onUpdateEntries(updatedEntries);
+    onSave(pendingSettings);
+    setShowRateChangeDialog(false);
   };
 
   return (
     <div className="tt-setup">
+      {showRateChangeDialog && (
+        <div className="rate-change-dialog">
+          <div className="rate-change-content">
+            <h4>💰 Rate Change</h4>
+            <p>You're changing from <strong>${existingSettings?.baseRate?.toFixed(2)}</strong> to <strong>${parseFloat(baseRate).toFixed(2)}</strong>/hr</p>
+            <p>When does the new rate start?</p>
+            <div className="form-group">
+              <label>Start Date (entries from this date forward will use new rate)</label>
+              <input 
+                type="date" 
+                value={rateChangeStartDate} 
+                onChange={e => setRateChangeStartDate(e.target.value)} 
+              />
+            </div>
+            <div className="rate-change-actions">
+              <button type="button" onClick={() => setShowRateChangeDialog(false)} className="cancel-btn">Cancel</button>
+              <button type="button" onClick={applyRateChange} className="save-btn">Apply New Rate</button>
+            </div>
+          </div>
+        </div>
+      )}
       <h3>{existingSettings ? 'Edit Settings' : 'Setup Time Tracker'}</h3>
       <form onSubmit={handleSubmit} className="setup-form">
         <div className="setup-section">

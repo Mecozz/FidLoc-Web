@@ -534,6 +534,62 @@
 }
 .setup-actions .save-btn:hover { background: #339af0; }
 
+/* Rate Change Dialog */
+.rate-change-dialog {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+.rate-change-content {
+  background: var(--card-bg, #16213e);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 100%;
+  border: 1px solid rgba(77, 171, 247, 0.3);
+}
+.rate-change-content h4 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  color: var(--text-primary, #fff);
+}
+.rate-change-content p {
+  margin: 0 0 12px 0;
+  color: var(--text-secondary, #aaa);
+  font-size: 14px;
+}
+.rate-change-content strong {
+  color: #22c55e;
+}
+.rate-change-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+.rate-change-actions button {
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rate-change-actions .cancel-btn {
+  background: transparent;
+  border: 1px solid var(--border-color, #333);
+  color: var(--text-secondary, #888);
+}
+.rate-change-actions .save-btn {
+  background: #22c55e;
+  border: none;
+  color: white;
+}
+
 /* Loading */
 .loading {
   display: flex;
