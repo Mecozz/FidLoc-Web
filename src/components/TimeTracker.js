@@ -453,10 +453,15 @@ function SummaryView({ entries, settings }) {
   
   const now = new Date();
   const thisWeekStart = getWeekStart(now);
+  // Week end is Saturday (6 days after Sunday start)
+  const thisWeekEnd = new Date(thisWeekStart);
+  thisWeekEnd.setDate(thisWeekEnd.getDate() + 6);
+  thisWeekEnd.setHours(23, 59, 59, 999);
+  
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const thisYearStart = new Date(now.getFullYear(), 0, 1);
 
-  const calcPeriod = (startDate, endDate = new Date()) => {
+  const calcPeriod = (startDate, endDate) => {
     const periodEntries = entries.filter(e => {
       const d = new Date(e.date + 'T12:00:00');
       return d >= startDate && d <= endDate;
@@ -482,9 +487,9 @@ function SummaryView({ entries, settings }) {
     return { totalHours, otHours, dtHours, totalPay, count: periodEntries.length };
   };
 
-  const thisWeek = calcPeriod(thisWeekStart);
-  const thisMonth = calcPeriod(thisMonthStart);
-  const thisYear = calcPeriod(thisYearStart);
+  const thisWeek = calcPeriod(thisWeekStart, thisWeekEnd);
+  const thisMonth = calcPeriod(thisMonthStart, now);
+  const thisYear = calcPeriod(thisYearStart, now);
 
   return (
     <div className="summary-view">
