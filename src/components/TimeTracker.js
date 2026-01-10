@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Clock, Settings, Plus, Trash2, Download, AlertTriangle, ChevronRight, ChevronDown, Calendar, DollarSign, Edit2, Check, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -426,6 +426,8 @@ function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
   const [parsedEntries, setParsedEntries] = useState([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const fileInputRef = useRef(null);
 
   if (!settings) return <div className="loading">Loading...</div>;
 
@@ -435,6 +437,32 @@ function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
     return entryWeekStart.getTime() === weekStart.getTime();
   });
   const weekHoursSoFar = weekEntries.reduce((sum, e) => sum + (e.hoursWorked || 0), 0);
+
+  // Handle image upload/capture
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setIsScanning(true);
+    setShowImport(true);
+    
+    try {
+      const Tesseract = await import('tesseract.js');
+      const result = await Tesseract.recognize(file, 'eng', {
+        logger: m => console.log(m)
+      });
+      
+      const text = result.data.text;
+      setImportText(text);
+      setParsedEntries(parseImportText(text));
+    } catch (err) {
+      console.error('OCR Error:', err);
+      alert('Failed to read image. Try pasting the text instead.');
+    }
+    
+    setIsScanning(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   // Parse pasted HR text or manual input
   const parseImportText = (text) => {
@@ -581,7 +609,39 @@ function EntryForm({ settings, entries, onAdd, onBulkAdd }) {
         
         {showImport && (
           <div className="import-content">
-            <p className="import-hint">Paste your HR time entry data below. Format: dates with hours (e.g., "01/04/2026 11.000000")</p>
+            <div className="import-image-buttons">
+              <input 
+                type="file" 
+                accept="image/*" 
+                onChange={handleImageUpload} 
+                ref={fileInputRef}
+                style={{display: 'none'}}
+                id="import-file"
+              />
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="import-image-btn" disabled={isScanning}>
+                📷 {isScanning ? 'Scanning...' : 'Upload Screenshot'}
+              </button>
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="environment"
+                onChange={handleImageUpload} 
+                style={{display: 'none'}}
+                id="import-camera"
+              />
+              <button type="button" onClick={() => document.getElementById('import-camera').click()} className="import-image-btn" disabled={isScanning}>
+                📱 Take Photo
+              </button>
+            </div>
+            
+            {isScanning && (
+              <div className="scanning-indicator">
+                <div className="scanning-spinner"></div>
+                <span>Reading image...</span>
+              </div>
+            )}
+            
+            <p className="import-hint">Or paste your HR time entry data below:</p>
             <textarea 
               value={importText} 
               onChange={e => handleImportTextChange(e.target.value)}
