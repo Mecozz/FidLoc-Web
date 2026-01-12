@@ -1,0 +1,206 @@
+/* Splitter Manager Styles */
+.splitter-manager {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary, #0f172a);
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #334155);
+}
+
+.splitter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.splitter-header label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary, #fff);
+}
+
+.splitter-count {
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.splitter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.splitter-list.readonly {
+  margin-bottom: 0;
+}
+
+.splitter-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-secondary, #1e293b);
+  border-radius: 6px;
+}
+
+.splitter-item.editable {
+  padding: 6px 8px;
+}
+
+.splitter-letter {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--accent-blue, #3b82f6);
+  min-width: 20px;
+  text-align: center;
+}
+
+.splitter-type {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  min-width: 60px;
+  text-align: center;
+}
+
+.splitter-type.xgspon {
+  background: rgba(168, 85, 247, 0.2);
+  color: #a855f7;
+}
+
+.splitter-type.gpon {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.splitter-type.bpon {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.splitter-type.unknown {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+}
+
+.splitter-serial {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+  letter-spacing: 1px;
+}
+
+.splitter-type-select {
+  padding: 4px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color, #334155);
+  background: var(--bg-tertiary, #0f172a);
+  color: var(--text-primary, #fff);
+  min-width: 75px;
+}
+
+.splitter-serial-input {
+  width: 55px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: monospace;
+  text-transform: uppercase;
+  border-radius: 4px;
+  border: 1px solid var(--border-color, #334155);
+  background: var(--bg-tertiary, #0f172a);
+  color: var(--text-primary, #fff);
+  text-align: center;
+}
+
+.splitter-remove {
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.splitter-remove:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.splitter-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color, #334155);
+}
+
+.splitter-letter-select {
+  width: 65px;
+  padding: 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color, #334155);
+  background: var(--bg-tertiary, #0f172a);
+  color: var(--text-primary, #fff);
+}
+
+.splitter-add-btn {
+  padding: 6px 10px;
+  background: var(--accent-blue, #3b82f6);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.splitter-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.splitter-add-btn:not(:disabled):hover {
+  background: #2563eb;
+}
+
+/* Readonly display toggle */
+.splitter-display {
+  margin-top: 8px;
+}
+
+.splitter-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-tertiary, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 6px;
+  color: var(--text-primary, #fff);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.splitter-toggle:hover {
+  background: var(--bg-secondary, #1e293b);
+}
+
+.splitter-display .splitter-list {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--bg-tertiary, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 6px;
+}

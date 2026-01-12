@@ -1,10 +1,51 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Clock, Settings, Plus, Trash2, Download, ChevronRight, ChevronDown, Calendar, DollarSign, Edit2, Check, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { X, Clock, Settings, Plus, Trash2, Download, ChevronRight, ChevronDown, Calendar, DollarSign, Edit2, Check, Cloud, CloudOff, RefreshCw, RotateCcw } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import './TimeTracker.css';
 
 const STORAGE_KEY = 'fidloc_timetracker';
+const BACKUP_KEY = 'fidloc_tt_backups';
+const BACKUP_RETENTION_DAYS = 10;
+
+// Backup utility functions
+const getBackups = (userId) => {
+  try {
+    const backups = JSON.parse(localStorage.getItem(`${BACKUP_KEY}_${userId}`) || '[]');
+    return backups;
+  } catch { return []; }
+};
+
+const saveBackup = (userId, entries, settings, reason) => {
+  if (!entries || entries.length === 0) return; // Don't backup empty data
+  
+  try {
+    const backups = getBackups(userId);
+    const now = new Date();
+    
+    // Add new backup
+    backups.unshift({
+      id: Date.now(),
+      timestamp: now.toISOString(),
+      reason,
+      entriesCount: entries.length,
+      entries,
+      settings
+    });
+    
+    // Remove backups older than 10 days
+    const cutoff = new Date(now.getTime() - (BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000));
+    const filteredBackups = backups.filter(b => new Date(b.timestamp) > cutoff);
+    
+    // Keep max 20 backups to prevent localStorage overflow
+    const trimmedBackups = filteredBackups.slice(0, 20);
+    
+    localStorage.setItem(`${BACKUP_KEY}_${userId}`, JSON.stringify(trimmedBackups));
+    console.log(`📦 Backup created: ${reason} (${entries.length} entries)`);
+  } catch (e) {
+    console.error('Backup save error:', e);
+  }
+};
 
 export default function TimeTracker({ userId, onClose }) {
   const [activeTab, setActiveTab] = useState('summary');
@@ -16,6 +57,8 @@ export default function TimeTracker({ userId, onClose }) {
   const [syncing, setSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [uiSize, setUiSize] = useState(() => localStorage.getItem('fidloc_tt_size') || 'medium');
+  const [showBackups, setShowBackups] = useState(false);
+  const [backups, setBackups] = useState([]);
 
   const cycleSize = () => {
     const sizes = ['small', 'medium', 'large'];
@@ -25,13 +68,46 @@ export default function TimeTracker({ userId, onClose }) {
     localStorage.setItem('fidloc_tt_size', nextSize);
   };
 
+  const loadBackups = useCallback(() => {
+    setBackups(getBackups(userId));
+  }, [userId]);
+
+  const restoreBackup = (backup) => {
+    if (!window.confirm(`Restore backup from ${new Date(backup.timestamp).toLocaleString()}?\n\nThis will replace your current ${entries.length} entries with ${backup.entriesCount} entries from the backup.`)) return;
+    
+    // Backup current data first
+    if (entries.length > 0) {
+      saveBackup(userId, entries, settings, 'Before restore');
+    }
+    
+    setEntries(backup.entries);
+    if (backup.settings) setSettings(backup.settings);
+    setShowBackups(false);
+    alert(`Restored ${backup.entriesCount} entries from backup!`);
+  };
+
+  const deleteBackup = (backupId) => {
+    const updated = backups.filter(b => b.id !== backupId);
+    localStorage.setItem(`${BACKUP_KEY}_${userId}`, JSON.stringify(updated));
+    setBackups(updated);
+  };
+
   // Load data - check Firebase first, then localStorage
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
       
+      console.log('🔍 TimeTracker Debug:');
+      console.log('  userId:', userId);
+      console.log('  Storage key:', STORAGE_KEY + '_' + userId);
+      
+      // Check ALL localStorage keys for timetracker
+      const allKeys = Object.keys(localStorage).filter(k => k.includes('timetracker'));
+      console.log('  All timetracker keys in localStorage:', allKeys);
+      
       // First check localStorage for local data
       const localData = localStorage.getItem(STORAGE_KEY + '_' + userId);
+      console.log('  localStorage data for this user:', localData ? 'EXISTS' : 'EMPTY');
       let localSettings = null;
       let localEntries = [];
       let localSyncEnabled = false;
@@ -48,13 +124,21 @@ export default function TimeTracker({ userId, onClose }) {
         try {
           const docRef = doc(db, 'timetracker', userId);
           const docSnap = await getDoc(docRef);
+          console.log('  Firebase doc exists:', docSnap.exists());
           if (docSnap.exists()) {
             const firebaseData = docSnap.data();
+            console.log('  Firebase data:', firebaseData);
+            console.log('  Firebase entries count:', firebaseData.entries?.length || 0);
             const fbSettings = firebaseData.settings;
             const fbEntries = firebaseData.entries || [];
             
             // Use Firebase data if it exists
             if (fbSettings || fbEntries.length > 0) {
+              // Backup local data before overwriting with Firebase data
+              if (localEntries.length > 0 && localEntries.length !== fbEntries.length) {
+                saveBackup(userId, localEntries, localSettings, 'Before Firebase sync (local had different data)');
+              }
+              
               setSettings(fbSettings || null);
               setEntries(fbEntries);
               setSyncEnabled(true);
@@ -71,10 +155,14 @@ export default function TimeTracker({ userId, onClose }) {
           }
         } catch (err) {
           console.error('Firebase load error:', err);
+          console.log('  Firebase error details:', err.message, err.code);
         }
       }
 
       // Fall back to localStorage
+      console.log('  Falling back to localStorage');
+      console.log('  Local settings:', localSettings);
+      console.log('  Local entries count:', localEntries.length);
       setSettings(localSettings);
       setEntries(localEntries);
       setSyncEnabled(localSyncEnabled);
@@ -133,6 +221,10 @@ export default function TimeTracker({ userId, onClose }) {
 
   const forceSync = async () => {
     if (!syncEnabled) return;
+    
+    // Backup before sync
+    saveBackup(userId, entries, settings, 'Before manual sync');
+    
     setSyncing(true);
     try {
       const docRef = doc(db, 'timetracker', userId);
@@ -173,7 +265,10 @@ export default function TimeTracker({ userId, onClose }) {
   };
 
   const clearAllData = async () => {
-    if (window.confirm('⚠️ Delete ALL time tracking data?\n\nThis cannot be undone!')) {
+    if (window.confirm('⚠️ Delete ALL time tracking data?\n\nA backup will be created automatically.')) {
+      // Backup before clearing
+      saveBackup(userId, entries, settings, 'Before Clear All');
+      
       setEntries([]);
       setSettings(null);
       localStorage.removeItem(STORAGE_KEY + '_' + userId);
@@ -261,8 +356,38 @@ export default function TimeTracker({ userId, onClose }) {
             </div>
             <div className="tt-footer">
               <button onClick={exportToCSV} className="tt-footer-btn"><Download size={16} /> Export CSV</button>
+              <button onClick={() => { loadBackups(); setShowBackups(true); }} className="tt-footer-btn"><RotateCcw size={16} /> Restore</button>
               <button onClick={clearAllData} className="tt-footer-btn danger"><Trash2 size={16} /> Clear All</button>
             </div>
+            
+            {/* Backup Restore Modal */}
+            {showBackups && (
+              <div className="tt-backup-modal">
+                <div className="tt-backup-header">
+                  <h3><RotateCcw size={18} /> Restore from Backup</h3>
+                  <button onClick={() => setShowBackups(false)} className="tt-close-btn"><X size={20} /></button>
+                </div>
+                <div className="tt-backup-list">
+                  {backups.length === 0 ? (
+                    <p className="tt-no-backups">No backups available. Backups are created automatically before sync and clear operations, and kept for 10 days.</p>
+                  ) : (
+                    backups.map(backup => (
+                      <div key={backup.id} className="tt-backup-item">
+                        <div className="tt-backup-info">
+                          <span className="tt-backup-date">{new Date(backup.timestamp).toLocaleString()}</span>
+                          <span className="tt-backup-reason">{backup.reason}</span>
+                          <span className="tt-backup-count">{backup.entriesCount} entries</span>
+                        </div>
+                        <div className="tt-backup-actions">
+                          <button onClick={() => restoreBackup(backup)} className="tt-restore-btn">Restore</button>
+                          <button onClick={() => deleteBackup(backup.id)} className="tt-delete-backup-btn"><Trash2 size={14} /></button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
